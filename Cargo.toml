@@ -10,5 +10,7 @@ schemars = { version = "1" }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
 tracing = "0.1.44"
-tokio = "1.49.0"
+tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+derive_more = { version = "2.1.1", features = ["from", "error", "display", "full"] }
+futures = "0.3.31"

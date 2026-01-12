@@ -1,0 +1,18 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: example-kube-controller
+  namespace: default
+  labels:
+    bfall.me/tailscale-ingress: http
+    bfall.me/tailscale-funnel: "true"
+spec:
+  selector:
+    app.kubernetes.io/name: example-kube-controller
+  ports:
+    - protocol: TCP
+      appProtocol: http
+      name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
