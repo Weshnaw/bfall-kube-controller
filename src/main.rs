@@ -34,6 +34,22 @@ enum AppError {
 async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError> {
     let client = &ctx.client;
 
+    /*
+        let owned_api: Api<MyOwnedType> = Api::namespaced(client.clone(), &ns);
+
+        let owned = owned_api
+            .list(&ListParams::default())
+            .await?
+            .items
+            .into_iter()
+            .filter(|o| {
+                o.owner_references()
+                    .iter()
+                    .any(|or| or.uid == primary.uid().unwrap())
+            })
+            .collect::<Vec<_>>();
+     */
+
     if let Some(labels) = &svc.metadata.labels
         && let Some(port) = labels.get("bfall.me/tailscale-ingress")
     {
