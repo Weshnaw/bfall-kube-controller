@@ -2,10 +2,10 @@
 - ingress-controller: create a tailscale ingress from a service based on a couple tags
 
 # TODO:
-- kubernetes leasing to do leader election
 - some basic logic to detect "does the ingress already exist"
 - logic to delete if the labels are removed
 - flesh out the controller deployment
+- maybe instead of specifying the port name, I can look for ports where the app protocol is http
 - add labels such as:
   - app.kubernetes.io/managed-by: ingress-controller
   - ingress-controller.bfall.me/parent: parent.name

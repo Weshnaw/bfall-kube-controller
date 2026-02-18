@@ -1,4 +1,12 @@
-use std::{collections::BTreeMap, io::BufRead, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    io::BufRead,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use derive_more::{Debug, Display, Error, From};
 use futures::StreamExt;
@@ -17,38 +25,31 @@ use kube::{
         watcher,
     },
 };
+use kube_leader_election::{LeaseLock, LeaseLockParams};
+use tokio::sync::Notify;
 use tracing::{debug, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 struct Data {
     client: Client,
+    leader_status: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Display, Error, From)]
 enum AppError {
     KubeError(kube::Error),
+    LeaderElectionError(kube_leader_election::Error),
     MissingObjectKey(#[error(not(source))] &'static str),
 }
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
 async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError> {
+    if ctx.leader_status.load(Ordering::Relaxed) {
+        info!("Skipping reconciliation as not leader");
+        return Ok(Action::requeue(Duration::from_mins(5)));
+    }
+
     let client = &ctx.client;
-
-    /*
-        let owned_api: Api<MyOwnedType> = Api::namespaced(client.clone(), &ns);
-
-        let owned = owned_api
-            .list(&ListParams::default())
-            .await?
-            .items
-            .into_iter()
-            .filter(|o| {
-                o.owner_references()
-                    .iter()
-                    .any(|or| or.uid == primary.uid().unwrap())
-            })
-            .collect::<Vec<_>>();
-     */
 
     if let Some(labels) = &svc.metadata.labels
         && let Some(port) = labels.get("bfall.me/tailscale-ingress")
@@ -135,13 +136,13 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
     } else {
         debug!("No labels found for svc");
     }
-
     Ok(Action::requeue(Duration::from_mins(5)))
 }
 
 /// The controller triggers this on reconcile errors
 #[tracing::instrument(level = "warn", skip(_ctx, _svc))]
 fn error_policy(_svc: Arc<Service>, e: &AppError, _ctx: Arc<Data>) -> Action {
+    warn!("Reconcile error: {}", e);
     Action::requeue(Duration::from_secs(1))
 }
 
@@ -152,9 +153,12 @@ async fn main() -> Result<(), AppError> {
         .with(EnvFilter::from_default_env())
         .init();
 
+    info!("Attempting to get leadership...");
+
     info!("Initializing client...");
 
     let client = Client::try_default().await?;
+    info!("currently leading");
 
     let config = Config::default();
 
@@ -162,8 +166,6 @@ async fn main() -> Result<(), AppError> {
     info!("press <enter> to force a reconciliation of all objects");
 
     let (mut reload_tx, reload_rx) = futures::channel::mpsc::channel(0);
-    // Using a regular background thread since tokio::io::stdin() doesn't allow aborting reads,
-    // and its worker prevents the Tokio runtime from shutting down.
     std::thread::spawn(move || {
         for _ in std::io::BufReader::new(std::io::stdin()).lines() {
             let _ = reload_tx.try_send(());
@@ -173,20 +175,73 @@ async fn main() -> Result<(), AppError> {
     let svc = Api::<Service>::all(client.clone());
     let ingress = Api::<Ingress>::all(client.clone());
 
-    Controller::new(svc, watcher::Config::default())
-        .owns(ingress, watcher::Config::default())
-        .with_config(config)
-        .reconcile_all_on(reload_rx.map(|_| ()))
-        .shutdown_on_signal()
-        .run(reconcile, error_policy, Arc::new(Data { client }))
-        .for_each(|res| async move {
-            match res {
-                Ok(o) => info!("reconciled {:?}", o),
-                Err(e) => warn!("reconcile failed: {}", e),
+    let notify = Arc::new(Notify::new());
+    let leader_status = Arc::new(AtomicBool::new(false));
+    let leadership = Arc::new(LeaseLock::new(
+        client.clone(),
+        "default", // TODO: configurable
+        LeaseLockParams {
+            holder_id: "tailscale-ingress-controller".into(),
+            lease_name: "tailscale-ingress-controller-lock".into(),
+            lease_ttl: Duration::from_secs(15),
+        },
+    ));
+    let tr_leadership = leadership.clone();
+    let tr_status = leader_status.clone();
+    let tr_notify = Arc::clone(&notify);
+    let leader_election_thread = tokio::spawn(async move {
+        let leadership = tr_leadership;
+        let status = tr_status;
+        let notify = tr_notify;
+        info!("Starting leader election...");
+        loop {
+            match leadership.try_acquire_or_renew().await {
+                Ok(_) => {
+                    status.store(true, Ordering::SeqCst);
+                    notify.notify_one();
+                    debug!("Leader election succeeded...")
+                }
+                Err(e) => {
+                    status.store(false, Ordering::SeqCst);
+                    warn!("failed to acquire or renew leadership: {}", e);
+                }
             }
-        })
-        .await;
-    info!("controller terminated");
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
+
+    let controller_thread = tokio::spawn(async move {
+        while leader_status.load(Ordering::Relaxed) {
+            debug!("Waiting for status notification...");
+            notify.notified().await;
+        }
+        info!("Starting controller...");
+        Controller::new(svc, watcher::Config::default())
+            .owns(ingress, watcher::Config::default())
+            .with_config(config)
+            .reconcile_all_on(reload_rx.map(|_| ()))
+            .shutdown_on_signal()
+            .run(
+                reconcile,
+                error_policy,
+                Arc::new(Data {
+                    client,
+                    leader_status,
+                }),
+            )
+            .for_each(|res| async move {
+                match res {
+                    Ok(o) => info!("reconciled {:?}", o),
+                    Err(e) => warn!("reconcile failed: {}", e),
+                }
+            })
+            .await;
+    });
+
+    let _ = tokio::select!( _ = leader_election_thread => {}, _ =controller_thread => {});
+
+    info!("Controller terminated...");
+    leadership.step_down().await?;
 
     Ok(())
 }
