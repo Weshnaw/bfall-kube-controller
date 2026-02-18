@@ -27,7 +27,7 @@ RUN cargo build --release --package tailscale-ingress-controller
 RUN groupadd -g $APP_GID $APP_GROUP && useradd -l -u $APP_UID -g $APP_GROUP -s /sbin/nologin $APP_USER
 RUN chown $APP_UID:$APP_GID /build/target/release/tailscale-ingress-controller
 
-FROM gcr.io/distroless/cc-debian12:latest AS runtime
+FROM gcr.io/distroless/cc-debian13:latest AS runtime
 
 # Copy builder files
 COPY --from=builder /etc/group /etc/group
