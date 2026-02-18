@@ -27,7 +27,10 @@ use kube::{
     },
 };
 use kube_leader_election::{LeaseLock, LeaseLockParams};
-use tokio::sync::Notify;
+use metrics::{counter, gauge, histogram};
+// use metrics_dashboard::{ChartType, DashboardOptions, build_dashboard_route};
+// use poem::{EndpointExt, Route, Server, listener::TcpListener, middleware::Tracing};
+use tokio::{sync::Notify, time::Instant};
 use tracing::{debug, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -56,7 +59,8 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
         debug!("Skipping reconciliation as not leader");
         return Ok(Action::requeue(Duration::from_mins(5)));
     }
-
+    let start = Instant::now();
+    counter!("reconciled").increment(1);
     let client = &ctx.client;
     let namespace = svc
         .metadata
@@ -125,9 +129,20 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             )))
             .await?;
 
-        let mut ingress = if let Some(ingress) = existing.items.first() {
+        let (ingress_name, namespace) = if let Some(ingress) = existing.items.first() {
             debug!("Ingress {} already exists, updating", ingress_name);
-            ingress.clone()
+            (
+                ingress
+                    .metadata
+                    .name
+                    .clone()
+                    .ok_or(AppError::MissingObjectKey("metadata.name"))?,
+                ingress
+                    .metadata
+                    .namespace
+                    .clone()
+                    .ok_or(AppError::MissingObjectKey("metadata.name"))?,
+            )
         } else {
             debug!("Ingress {} does not exist, creating", ingress_name);
 
@@ -150,36 +165,36 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
                     "Failed to find a usable name for the ingress",
                 ));
             }
-
-            Ingress {
-                metadata: ObjectMeta {
-                    name: Some(ingress_name.clone()),
-                    namespace: Some(namespace.clone()),
-                    ..Default::default()
-                },
-                ..Default::default()
-            }
+            (ingress_name, namespace.clone())
         };
-        ingress.metadata.annotations = annotations;
-        ingress.metadata.owner_references = Some(vec![owner_ref]);
-        ingress.metadata.labels = Some(labels);
-        ingress.spec = Some(IngressSpec {
-            default_backend: Some(IngressBackend {
-                service: Some(IngressServiceBackend {
-                    name: name.clone(),
-                    port: Some(port),
+        let ingress = Ingress {
+            metadata: ObjectMeta {
+                name: Some(ingress_name.clone()),
+                namespace: Some(namespace.clone()),
+                owner_references: Some(vec![owner_ref]),
+                annotations,
+                labels: Some(labels),
+                ..Default::default()
+            },
+            spec: Some(IngressSpec {
+                default_backend: Some(IngressBackend {
+                    service: Some(IngressServiceBackend {
+                        name: name.clone(),
+                        port: Some(port),
+                    }),
+                    ..Default::default()
                 }),
+                ingress_class_name: Some("tailscale".into()),
+                tls: Some(vec![IngressTLS {
+                    hosts: Some(vec![name.clone()]),
+                    ..Default::default()
+                }]),
                 ..Default::default()
             }),
-            ingress_class_name: Some("tailscale".into()),
-            tls: Some(vec![IngressTLS {
-                hosts: Some(vec![name.clone()]),
-                ..Default::default()
-            }]),
             ..Default::default()
-        });
-        let ingress = ingress;
+        };
 
+        counter!("reconciled_patch").increment(1);
         // Use patch with apply to create or update the ingress
         ingress_api
             .patch(
@@ -188,6 +203,7 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
                 &Patch::Apply(&ingress),
             )
             .await?;
+        histogram!("reconcile_patch_time").record(start.elapsed().as_secs_f32());
     } else {
         let existing = ingress_api
             .list(&ListParams::default().labels(&format!(
@@ -197,15 +213,20 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             .await?;
         debug!("No labels found for svc");
 
-        for ingress in existing {
+        for ingress in &existing {
             if let Some(ingress) = ingress.name() {
+                counter!("reconciled_remove").increment(1);
                 info!("Removing ingress: {}", &ingress);
                 ingress_api
                     .delete(&ingress, &DeleteParams::default())
                     .await?;
             }
         }
+        if !existing.items.is_empty() {
+            histogram!("reconcile_delete_time").record(start.elapsed().as_secs_f32());
+        }
     }
+    histogram!("reconcile_time").record(start.elapsed().as_secs_f32());
     Ok(Action::requeue(Duration::from_mins(5)))
 }
 
@@ -213,6 +234,7 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
 #[tracing::instrument(level = "warn", skip(_ctx, _svc))]
 fn error_policy(_svc: Arc<Service>, e: &AppError, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
+    counter!("reconciled_error").increment(1);
     Action::requeue(Duration::from_secs(1))
 }
 
@@ -249,6 +271,8 @@ async fn main() -> Result<(), AppError> {
 
     let notify = Arc::new(Notify::new());
     let leader_status = Arc::new(AtomicBool::new(false));
+    let leader_guage = gauge!("leader_status");
+    leader_guage.set(0);
     let leadership = Arc::new(LeaseLock::new(
         client.clone(),
         &lease_namespace,
@@ -261,7 +285,7 @@ async fn main() -> Result<(), AppError> {
     let tr_leadership = leadership.clone();
     let tr_status = leader_status.clone();
     let tr_notify = Arc::clone(&notify);
-    let leader_election_thread = tokio::spawn(async move {
+    tokio::spawn(async move {
         let leadership = tr_leadership;
         let status = tr_status;
         let notify = tr_notify;
@@ -271,9 +295,11 @@ async fn main() -> Result<(), AppError> {
                 Ok(_) => {
                     status.store(true, Ordering::SeqCst);
                     notify.notify_one();
+                    leader_guage.set(1);
                     debug!("Leader election succeeded...")
                 }
                 Err(e) => {
+                    leader_guage.set(0);
                     status.store(false, Ordering::SeqCst);
                     warn!("failed to acquire or renew leadership: {}", e);
                 }
@@ -282,35 +308,54 @@ async fn main() -> Result<(), AppError> {
         }
     });
 
-    let controller_thread = tokio::spawn(async move {
-        while leader_status.load(Ordering::Relaxed) {
-            debug!("Waiting for status notification...");
-            notify.notified().await;
-        }
-        info!("Starting controller...");
-        Controller::new(svc, watcher::Config::default())
-            .owns(ingress, watcher::Config::default())
-            .with_config(config)
-            .reconcile_all_on(reload_rx.map(|_| ()))
-            .shutdown_on_signal()
-            .run(
-                reconcile,
-                error_policy,
-                Arc::new(Data {
-                    client,
-                    leader_status,
-                }),
-            )
-            .for_each(|res| async move {
-                match res {
-                    Ok(o) => debug!("reconciled {:?}", o),
-                    Err(e) => warn!("reconcile failed: {}", e),
-                }
-            })
-            .await;
-    });
+    // tokio::spawn(async move {
+    //     let port = std::env::var("PORT").unwrap_or("3000".into());
+    //     let server = format!("0.0.0.0:{}", port);
 
-    tokio::select!(_ = leader_election_thread => {}, _ = controller_thread => {});
+    //     info!("Metrics listening on {}", server);
+
+    //     let dashboard_options = DashboardOptions {
+    //         custom_charts: vec![],
+    //         include_default: true,
+    //     };
+
+    //     let app = Route::new()
+    //         .nest("/", build_dashboard_route(dashboard_options))
+    //         .with(Tracing);
+
+    //     Server::new(TcpListener::bind(server))
+    //         .name("metrics")
+    //         .run(app)
+    //         .await
+    //         .unwrap();
+    // });
+
+    while leader_status.load(Ordering::Relaxed) {
+        debug!("Waiting for status notification...");
+        notify.notified().await;
+    }
+
+    info!("Starting controller...");
+    Controller::new(svc, watcher::Config::default())
+        .owns(ingress, watcher::Config::default())
+        .with_config(config)
+        .reconcile_all_on(reload_rx.map(|_| ()))
+        .shutdown_on_signal()
+        .run(
+            reconcile,
+            error_policy,
+            Arc::new(Data {
+                client,
+                leader_status,
+            }),
+        )
+        .for_each(|res| async move {
+            match res {
+                Ok(o) => debug!("reconciled {:?}", o),
+                Err(e) => warn!("reconcile failed: {}", e),
+            }
+        })
+        .await;
 
     info!("Controller terminated...");
     leadership.step_down().await?;
