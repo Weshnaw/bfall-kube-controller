@@ -1,5 +1,10 @@
 FROM rust:1.84-slim AS builder
 
+ENV APP_GROUP=appgroup \
+    APP_GID=1000 \
+    APP_USER=appuser \
+    APP_UID=1000
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
@@ -19,12 +24,14 @@ RUN rm -f tailscale-ingress-controller/src/main.rs
 COPY tailscale-ingress-controller/src ./tailscale-ingress-controller/src
 COPY shared/src/ ./shared/src/
 RUN cargo build --release --package tailscale-ingress-controller
+RUN groupadd -g $APP_GID $APP_GROUP && useradd -u $APP_UID -g $APP_GROUP -s /sbin/nologin $APP_USER
+RUN chown $APP_UID:$APP_GID /build/target/release/tailscale-ingress-controller
 
 FROM gcr.io/distroless/cc-debian12 AS runtime
 
-RUN groupadd -g 1000 appgroup && useradd -u 1000 -g appgroup -s /sbin/nologin appuser
-COPY --from=builder /build/target/release/tailscale-ingress-controller /usr/local/bin/tailscale-ingress-controller
-RUN chown appuser:appgroup /usr/local/bin/tailscale-ingress-controller
-WORKDIR /home/appuser
-USER appuser
-ENTRYPOINT ["/usr/local/bin/tailscale-ingress-controller"]
+COPY --from=builder /etc/group /etc/group
+COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder /build/target/release/tailscale-ingress-controller /app/tailscale-ingress-controller
+WORKDIR /app
+USER $APP_UID
+ENTRYPOINT ["/app/tailscale-ingress-controller"]
