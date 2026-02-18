@@ -18,10 +18,11 @@ use k8s_openapi::api::{
 };
 use kube::{
     Api, Client, Resource,
-    api::{ObjectMeta, Patch, PatchParams},
+    api::{DeleteParams, ListParams, ObjectMeta, Patch, PatchParams},
     runtime::{
         Controller,
         controller::{Action, Config},
+        reflector::Lookup,
         watcher,
     },
 };
@@ -44,13 +45,24 @@ enum AppError {
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
 async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError> {
-    if ctx.leader_status.load(Ordering::Relaxed) {
-        info!("Skipping reconciliation as not leader");
+    if !ctx.leader_status.load(Ordering::Relaxed) {
+        debug!("Skipping reconciliation as not leader");
         return Ok(Action::requeue(Duration::from_mins(5)));
     }
 
     let client = &ctx.client;
-
+    let namespace = svc
+        .metadata
+        .namespace
+        .as_ref()
+        .ok_or(AppError::MissingObjectKey("metadata.namespace"))?;
+    let name = svc
+        .metadata
+        .name
+        .as_ref()
+        .ok_or(AppError::MissingObjectKey("metadata.name"))?;
+    let ingress_name = format!("tsi-{name}");
+    let ingress_api = Api::<Ingress>::namespaced(client.clone(), namespace);
     if let Some(labels) = &svc.metadata.labels
         && let Some(port) = labels.get("bfall.me/tailscale-ingress")
     {
@@ -62,17 +74,6 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
         let owner_ref = svc
             .controller_owner_ref(&())
             .ok_or(AppError::MissingObjectKey("metadata.owner_references"))?;
-
-        let name = svc
-            .metadata
-            .name
-            .as_ref()
-            .ok_or(AppError::MissingObjectKey("metadata.name"))?;
-        let namespace = svc
-            .metadata
-            .namespace
-            .as_ref()
-            .ok_or(AppError::MissingObjectKey("metadata.namespace"))?;
 
         let port = if let Ok(port) = port.parse::<i32>() {
             ServiceBackendPort {
@@ -96,7 +97,7 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
 
         let ingress = Ingress {
             metadata: ObjectMeta {
-                name: Some(format!("tsi-{name}")),
+                name: Some(ingress_name),
                 namespace: Some(namespace.clone()),
                 owner_references: Some(vec![owner_ref]),
                 annotations,
@@ -120,21 +121,47 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             ..Default::default()
         };
 
-        let ingress_api = Api::<Ingress>::namespaced(client.clone(), namespace);
+        let ingress_name = ingress
+            .metadata
+            .name
+            .as_ref()
+            .ok_or(AppError::MissingObjectKey("metadata.name"))?;
 
+        // Check if ingress already exists using list with name selector
+        let existing = ingress_api
+            .list(&ListParams::default().fields(&format!("metadata.name={}", ingress_name)))
+            .await?;
+
+        // Use patch with apply to create or update the ingress
+
+        if existing.items.is_empty() {
+            debug!("Ingress {} does not exist, creating", ingress_name);
+        } else {
+            debug!("Ingress {} already exists, updating", ingress_name);
+        }
+
+        // Use patch with apply to create or update the ingress
         ingress_api
             .patch(
-                ingress
-                    .metadata
-                    .name
-                    .as_ref()
-                    .ok_or(AppError::MissingObjectKey("metadata.name"))?,
+                ingress_name,
                 &PatchParams::apply("bfall.me/ingress-controller"),
                 &Patch::Apply(&ingress),
             )
             .await?;
     } else {
+        let existing = ingress_api
+            .list(&ListParams::default().fields(&format!("metadata.name={}", ingress_name)))
+            .await?;
         debug!("No labels found for svc");
+
+        for ingress in existing {
+            if let Some(ingress) = ingress.name() {
+                info!("Removing ingress: {}", &ingress);
+                ingress_api
+                    .delete(&ingress, &DeleteParams::default())
+                    .await?;
+            }
+        }
     }
     Ok(Action::requeue(Duration::from_mins(5)))
 }
@@ -233,7 +260,7 @@ async fn main() -> Result<(), AppError> {
             )
             .for_each(|res| async move {
                 match res {
-                    Ok(o) => info!("reconciled {:?}", o),
+                    Ok(o) => debug!("reconciled {:?}", o),
                     Err(e) => warn!("reconcile failed: {}", e),
                 }
             })

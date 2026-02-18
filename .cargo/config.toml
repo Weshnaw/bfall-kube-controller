@@ -1,2 +1,2 @@
 [env]
-RUST_LOG = "info,bfall_kube_controller=debug"
+RUST_LOG = "info,tailscale_ingress_controller=debug"
