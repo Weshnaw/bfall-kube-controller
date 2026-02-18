@@ -31,6 +31,10 @@ use tokio::sync::Notify;
 use tracing::{debug, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
+pub mod built_info {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
 struct Data {
     client: Client,
     leader_status: Arc<AtomicBool>,
@@ -61,6 +65,11 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
         .name
         .as_ref()
         .ok_or(AppError::MissingObjectKey("metadata.name"))?;
+    let service_uid = svc
+        .metadata
+        .uid
+        .as_ref()
+        .ok_or(AppError::MissingObjectKey("metadata.uid"))?;
     let ingress_name = format!("tsi-{name}");
     let ingress_api = Api::<Ingress>::namespaced(client.clone(), namespace);
     if let Some(labels) = &svc.metadata.labels
@@ -95,12 +104,24 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             None
         };
 
+        let mut labels = BTreeMap::new();
+        labels.insert(String::from("bfall.me/managed"), String::from("true"));
+        labels.insert(String::from("bfall.me/parent-uid"), service_uid.clone());
+        labels.insert(
+            String::from("bfall.me/version"),
+            built_info::PKG_VERSION.into(),
+        );
+        if let Some(hash) = built_info::GIT_COMMIT_HASH {
+            labels.insert(String::from("bfall.me/commit"), hash.into());
+        }
+
         let ingress = Ingress {
             metadata: ObjectMeta {
                 name: Some(ingress_name),
                 namespace: Some(namespace.clone()),
                 owner_references: Some(vec![owner_ref]),
                 annotations,
+                labels: Some(labels),
                 ..Default::default()
             },
             spec: Some(IngressSpec {
@@ -129,7 +150,10 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
 
         // Check if ingress already exists using list with name selector
         let existing = ingress_api
-            .list(&ListParams::default().fields(&format!("metadata.name={}", ingress_name)))
+            .list(&ListParams::default().labels(&format!(
+                "bfall.me/parent-uid={},bfall.me/managed=true",
+                service_uid
+            )))
             .await?;
 
         // Use patch with apply to create or update the ingress
