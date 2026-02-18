@@ -175,11 +175,13 @@ async fn main() -> Result<(), AppError> {
     let svc = Api::<Service>::all(client.clone());
     let ingress = Api::<Ingress>::all(client.clone());
 
+    let lease_namespace = std::env::var("NAMESPACE").unwrap_or("default".into());
+
     let notify = Arc::new(Notify::new());
     let leader_status = Arc::new(AtomicBool::new(false));
     let leadership = Arc::new(LeaseLock::new(
         client.clone(),
-        "default", // TODO: configurable
+        &lease_namespace,
         LeaseLockParams {
             holder_id: "tailscale-ingress-controller".into(),
             lease_name: "tailscale-ingress-controller-lock".into(),
