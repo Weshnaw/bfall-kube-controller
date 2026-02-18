@@ -44,7 +44,10 @@ struct Data {
 enum AppError {
     KubeError(kube::Error),
     LeaderElectionError(kube_leader_election::Error),
+    #[from(skip)]
     MissingObjectKey(#[error(not(source))] &'static str),
+    #[from(skip)]
+    CouldNotCreateResource(#[error(not(source))] &'static str),
 }
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
@@ -70,7 +73,7 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
         .uid
         .as_ref()
         .ok_or(AppError::MissingObjectKey("metadata.uid"))?;
-    let ingress_name = format!("tsi-{name}");
+    let mut ingress_name = format!("tsi-{name}");
     let ingress_api = Api::<Ingress>::namespaced(client.clone(), namespace);
     if let Some(labels) = &svc.metadata.labels
         && let Some(port) = labels.get("bfall.me/tailscale-ingress")
@@ -115,40 +118,6 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             labels.insert(String::from("bfall.me/commit"), hash.into());
         }
 
-        let ingress = Ingress {
-            metadata: ObjectMeta {
-                name: Some(ingress_name),
-                namespace: Some(namespace.clone()),
-                owner_references: Some(vec![owner_ref]),
-                annotations,
-                labels: Some(labels),
-                ..Default::default()
-            },
-            spec: Some(IngressSpec {
-                default_backend: Some(IngressBackend {
-                    service: Some(IngressServiceBackend {
-                        name: name.clone(),
-                        port: Some(port),
-                    }),
-                    ..Default::default()
-                }),
-                ingress_class_name: Some("tailscale".into()),
-                tls: Some(vec![IngressTLS {
-                    hosts: Some(vec![name.clone()]),
-                    ..Default::default()
-                }]),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-
-        let ingress_name = ingress
-            .metadata
-            .name
-            .as_ref()
-            .ok_or(AppError::MissingObjectKey("metadata.name"))?;
-
-        // Check if ingress already exists using list with name selector
         let existing = ingress_api
             .list(&ListParams::default().labels(&format!(
                 "bfall.me/parent-uid={},bfall.me/managed=true",
@@ -156,25 +125,75 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             )))
             .await?;
 
-        // Use patch with apply to create or update the ingress
-
-        if existing.items.is_empty() {
-            debug!("Ingress {} does not exist, creating", ingress_name);
-        } else {
+        let mut ingress = if let Some(ingress) = existing.items.first() {
             debug!("Ingress {} already exists, updating", ingress_name);
-        }
+            ingress.clone()
+        } else {
+            debug!("Ingress {} does not exist, creating", ingress_name);
+
+            let mut found_usable_name = false;
+            for i in 0..20 {
+                let existing = ingress_api
+                    .list(&ListParams::default().fields(&format!("metadata.name={}", ingress_name)))
+                    .await?;
+
+                if existing.items.is_empty() {
+                    found_usable_name = true;
+                } else {
+                    ingress_name = format!("tsi-{name}-{i:02}");
+                }
+            }
+
+            if !found_usable_name {
+                warn!("Failed to find a usable name for the ingress");
+                return Err(AppError::CouldNotCreateResource(
+                    "Failed to find a usable name for the ingress",
+                ));
+            }
+
+            Ingress {
+                metadata: ObjectMeta {
+                    name: Some(ingress_name.clone()),
+                    namespace: Some(namespace.clone()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        };
+        ingress.metadata.annotations = annotations;
+        ingress.metadata.owner_references = Some(vec![owner_ref]);
+        ingress.metadata.labels = Some(labels);
+        ingress.spec = Some(IngressSpec {
+            default_backend: Some(IngressBackend {
+                service: Some(IngressServiceBackend {
+                    name: name.clone(),
+                    port: Some(port),
+                }),
+                ..Default::default()
+            }),
+            ingress_class_name: Some("tailscale".into()),
+            tls: Some(vec![IngressTLS {
+                hosts: Some(vec![name.clone()]),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        });
+        let ingress = ingress;
 
         // Use patch with apply to create or update the ingress
         ingress_api
             .patch(
-                ingress_name,
+                &ingress_name,
                 &PatchParams::apply("bfall.me/ingress-controller"),
                 &Patch::Apply(&ingress),
             )
             .await?;
     } else {
         let existing = ingress_api
-            .list(&ListParams::default().fields(&format!("metadata.name={}", ingress_name)))
+            .list(&ListParams::default().labels(&format!(
+                "bfall.me/parent-uid={},bfall.me/managed=true",
+                service_uid
+            )))
             .await?;
         debug!("No labels found for svc");
 
@@ -291,7 +310,7 @@ async fn main() -> Result<(), AppError> {
             .await;
     });
 
-    let _ = tokio::select!( _ = leader_election_thread => {}, _ =controller_thread => {});
+    tokio::select!(_ = leader_election_thread => {}, _ = controller_thread => {});
 
     info!("Controller terminated...");
     leadership.step_down().await?;
