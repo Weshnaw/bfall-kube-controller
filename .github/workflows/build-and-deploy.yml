@@ -3,12 +3,12 @@ name: Build and Deploy tailscale-ingress-controller
 on:
   push:
     branches:
-      - main
+      - master
     tags:
       - "v*"
   pull_request:
     branches:
-      - main
+      - master
 
 env:
   REGISTRY: ghcr.io
