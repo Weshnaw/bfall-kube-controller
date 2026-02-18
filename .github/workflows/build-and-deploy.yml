@@ -68,4 +68,4 @@ jobs:
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: tailscale-ingress-controller/Dockerfile
-          # ignore: DL3006,DL3008,DL3013,DL3018,DL3022,DL3028,SC2086
+          ignore: DL3006,DL3008 # TODO: eventually resolve these
