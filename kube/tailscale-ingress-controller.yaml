@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bfall-me
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tailscale-ingress-controller
+  namespace: bfall-me
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tailscale-ingress-controller
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tailscale-ingress-controller
+subjects:
+  - kind: ServiceAccount
+    name: tailscale-ingress-controller
+    namespace: bfall-me
+roleRef:
+  kind: ClusterRole
+  name: tailscale-ingress-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale-ingress-controller
+  namespace: bfall-me
+spec:
+  replicas: 1
+  template:
+    spec:
+      serviceAccountName: tailscale-ingress-controller
+      containers:
+        - name: tailscale-ingress-controller
+          image: myrepo/tailscale-ingress-controller:latest
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
