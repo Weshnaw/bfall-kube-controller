@@ -1706,6 +1706,22 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
+dependencies = [
+ "built",
+ "derive_more",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "kube-leader-election",
+ "metrics",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
 
 [[package]]
 name = "shlex"
@@ -1805,6 +1821,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "shared",
  "tokio",
  "tracing",
  "tracing-subscriber",
