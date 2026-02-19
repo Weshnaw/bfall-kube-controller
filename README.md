@@ -3,3 +3,4 @@
 
 # TODO:
 - considering: creating macros for the reconciler and error policy traits
+- considering: do I even need the reconciler to check leadership status?
