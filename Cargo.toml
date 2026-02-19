@@ -19,6 +19,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 derive_more = { version = "2.1.1", features = ["from", "error", "display", "full"] }
 futures = "0.3.31"
 built = { version = "0.8.0", features = ["git2"] }
+uuid = { version = "1.21.0", features = ["v4"] }
 metrics = "0.24.3"
 # metrics-tracing-context = "0.18.1"
 # metrics-dashboard = "0.3.3"

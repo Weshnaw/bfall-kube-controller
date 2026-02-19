@@ -16,6 +16,7 @@ tracing-subscriber.workspace = true
 derive_more.workspace = true
 futures.workspace = true
 metrics.workspace = true
+uuid.workspace = true
 
 [build-dependencies]
 built.workspace = true
