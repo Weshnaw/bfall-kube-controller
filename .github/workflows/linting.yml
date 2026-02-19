@@ -3,7 +3,7 @@ name: Lints codebase
 on: [push, pull_request]
 
 jobs:
-  check:
+  rust:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +22,7 @@ jobs:
       - name: Run cargo clippy
         run: cargo clippy --all-targets --all-features -- --deny warnings
 
-  lint:
+  docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
