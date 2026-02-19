@@ -37,4 +37,5 @@ COPY --from=builder /build/target/release/tailscale-ingress-controller /app/tail
 # Start the application
 WORKDIR /app
 USER $APP_UID
+ENV RUST_LOG="info"
 ENTRYPOINT ["/app/tailscale-ingress-controller"]
