@@ -4,11 +4,13 @@ on:
   push:
     branches:
       - master
+      - develop
     tags:
       - "v*"
   pull_request:
     branches:
       - master
+      - develop
 
 env:
   REGISTRY: ghcr.io
@@ -45,6 +47,7 @@ jobs:
             type=ref,event=tag
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=dev
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
