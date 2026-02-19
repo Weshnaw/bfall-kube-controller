@@ -154,9 +154,10 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
 
                 if existing.items.is_empty() {
                     found_usable_name = true;
-                } else {
-                    ingress_name = format!("tsi-{name}-{i:02}");
+                    break;
                 }
+
+                ingress_name = format!("tsi-{name}-{i:02}");
             }
 
             if !found_usable_name {
