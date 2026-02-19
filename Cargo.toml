@@ -7,21 +7,16 @@ version = "0.2.0"
 edition = "2024"
 
 [workspace.dependencies]
+shared = { path = "./shared" }
+derive_more = { version = "2.1.1", features = ["from", "error", "display", "debug"] }
+serde = "1.0.228"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3.31"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+metrics = "0.24.3"
 kube = { version = "3.0.0", features = ["runtime", "derive"] }
 kube-leader-election = "0.43.0"
 k8s-openapi = { version = "0.27.0", features = ["latest", "schemars"] }
-schemars = { version = "1" }
-serde = { version = "1.0.228", features = ["derive", "rc"] }
-serde_json = "1.0.149"
-tracing = "0.1.44"
-tokio = { version = "1", features = ["full"] }
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-derive_more = { version = "2.1.1", features = ["from", "error", "display", "full"] }
-futures = "0.3.31"
-built = { version = "0.8.0", features = ["git2"] }
 uuid = { version = "1.21.0", features = ["v4"] }
-metrics = "0.24.3"
-shared = { path = "./shared" }
-# metrics-tracing-context = "0.18.1"
-# metrics-dashboard = "0.3.3"
-# poem = "3.1.12"
+built = { version = "0.8.0", features = ["git2"] }
