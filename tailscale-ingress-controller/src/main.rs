@@ -103,25 +103,6 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             }
         };
 
-        let annotations = if should_funnel {
-            let mut map = BTreeMap::new();
-            map.insert(String::from("tailscale.com/funnel"), String::from("true"));
-            Some(map)
-        } else {
-            None
-        };
-
-        let mut labels = BTreeMap::new();
-        labels.insert(String::from("bfall.me/managed"), String::from("true"));
-        labels.insert(String::from("bfall.me/parent-uid"), service_uid.clone());
-        labels.insert(
-            String::from("bfall.me/version"),
-            built_info::PKG_VERSION.into(),
-        );
-        if let Some(hash) = built_info::GIT_COMMIT_HASH {
-            labels.insert(String::from("bfall.me/commit"), hash.into());
-        }
-
         let existing = ingress_api
             .list(&ListParams::default().labels(&format!(
                 "bfall.me/parent-uid={},bfall.me/managed=true",
@@ -168,6 +149,26 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             }
             (ingress_name, namespace.clone())
         };
+
+        let annotations = if should_funnel {
+            let mut map = BTreeMap::new();
+            map.insert(String::from("tailscale.com/funnel"), String::from("true"));
+            Some(map)
+        } else {
+            None
+        };
+
+        let mut labels = BTreeMap::new();
+        labels.insert(String::from("bfall.me/managed"), String::from("true"));
+        labels.insert(String::from("bfall.me/parent-uid"), service_uid.clone());
+        labels.insert(
+            String::from("bfall.me/version"),
+            built_info::PKG_VERSION.into(),
+        );
+        if let Some(hash) = built_info::GIT_COMMIT_HASH {
+            labels.insert(String::from("bfall.me/commit"), hash.into());
+        }
+
         let ingress = Ingress {
             metadata: ObjectMeta {
                 name: Some(ingress_name.clone()),
@@ -200,7 +201,7 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
         ingress_api
             .patch(
                 &ingress_name,
-                &PatchParams::apply("bfall.me/ingress-controller"),
+                &PatchParams::apply(built_info::PKG_NAME),
                 &Patch::Apply(&ingress),
             )
             .await?;
