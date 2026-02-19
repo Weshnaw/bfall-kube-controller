@@ -1,14 +1,14 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: example-kube-controller
+  name: example
   namespace: default
   labels:
     bfall.me/tailscale-ingress: http
     # bfall.me/tailscale-funnel: "true"
 spec:
   selector:
-    app.kubernetes.io/name: example-kube-controller
+    app.kubernetes.io/name: example
   ports:
     - protocol: TCP
       appProtocol: http
