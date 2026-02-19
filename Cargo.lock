@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "built",
  "derive_more",
@@ -1809,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "tailscale-ingress-controller"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "built",
  "derive_more",
