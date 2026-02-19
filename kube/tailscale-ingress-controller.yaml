@@ -45,13 +45,19 @@ metadata:
   name: tailscale-ingress-controller
   namespace: bfall-me
 spec:
-  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tailscale-ingress-controller
+  replicas: 3
   template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tailscale-ingress-controller
     spec:
       serviceAccountName: tailscale-ingress-controller
       containers:
         - name: tailscale-ingress-controller
-          image: myrepo/tailscale-ingress-controller:latest
+          image: ghcr.io/weshnaw/bfall-kube-controller/tailscale-ingress-controller:master
           env:
             - name: NAMESPACE
               valueFrom:

@@ -1,6 +1,5 @@
 use std::{
     collections::BTreeMap,
-    io::BufRead,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -26,13 +25,17 @@ use kube::{
         watcher,
     },
 };
-use kube_leader_election::{LeaseLock, LeaseLockParams};
+use kube_leader_election::{LeaseLock, LeaseLockParams, LeaseLockResult};
 use metrics::{counter, gauge, histogram};
 // use metrics_dashboard::{ChartType, DashboardOptions, build_dashboard_route};
 // use poem::{EndpointExt, Route, Server, listener::TcpListener, middleware::Tracing};
-use tokio::{sync::Notify, time::Instant};
-use tracing::{debug, info, warn};
+use tokio::{
+    sync::{Mutex, mpsc},
+    time::Instant,
+};
+use tracing::{debug, info, trace, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use uuid::Uuid;
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -57,7 +60,7 @@ enum AppError {
 async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError> {
     if !ctx.leader_status.load(Ordering::Relaxed) {
         debug!("Skipping reconciliation as not leader");
-        return Ok(Action::requeue(Duration::from_mins(5)));
+        return Ok(Action::requeue(Duration::from_secs(30)));
     }
     let start = Instant::now();
     counter!("reconciled").increment(1);
@@ -85,11 +88,57 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
         let should_funnel = labels
             .get("bfall.me/tailscale-funnel")
             .is_some_and(|val| val.parse::<bool>().unwrap_or(false));
-        info!("Creating tailscale ingress: port:{port} should_funnel:{should_funnel}");
 
         let owner_ref = svc
             .controller_owner_ref(&())
             .ok_or(AppError::MissingObjectKey("metadata.owner_references"))?;
+
+        let existing = ingress_api
+            .list(&ListParams::default().labels(&format!(
+                "bfall.me/parent-uid={},bfall.me/managed=true",
+                service_uid
+            )))
+            .await?;
+
+        let (ingress_name, namespace) = if let Some(ingress) = existing.items.first() {
+            info!("Patching ingress: port:{port} should_funnel:{should_funnel}");
+            (
+                ingress
+                    .metadata
+                    .name
+                    .clone()
+                    .ok_or(AppError::MissingObjectKey("metadata.name"))?,
+                ingress
+                    .metadata
+                    .namespace
+                    .clone()
+                    .ok_or(AppError::MissingObjectKey("metadata.name"))?,
+            )
+        } else {
+            info!("Creating tailscale ingress: port:{port} should_funnel:{should_funnel}");
+
+            let mut found_usable_name = false;
+            for i in 0..20 {
+                let existing = ingress_api
+                    .list(&ListParams::default().fields(&format!("metadata.name={}", ingress_name)))
+                    .await?;
+
+                if existing.items.is_empty() {
+                    found_usable_name = true;
+                    break;
+                }
+
+                ingress_name = format!("tsi-{name}-{i:02}");
+            }
+
+            if !found_usable_name {
+                warn!("Failed to find a usable name for the ingress");
+                return Err(AppError::CouldNotCreateResource(
+                    "Failed to find a usable name for the ingress",
+                ));
+            }
+            (ingress_name, namespace.clone())
+        };
 
         let port = if let Ok(port) = port.parse::<i32>() {
             ServiceBackendPort {
@@ -102,7 +151,6 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
                 ..Default::default()
             }
         };
-
         let annotations = if should_funnel {
             let mut map = BTreeMap::new();
             map.insert(String::from("tailscale.com/funnel"), String::from("true"));
@@ -122,51 +170,6 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
             labels.insert(String::from("bfall.me/commit"), hash.into());
         }
 
-        let existing = ingress_api
-            .list(&ListParams::default().labels(&format!(
-                "bfall.me/parent-uid={},bfall.me/managed=true",
-                service_uid
-            )))
-            .await?;
-
-        let (ingress_name, namespace) = if let Some(ingress) = existing.items.first() {
-            debug!("Ingress {} already exists, updating", ingress_name);
-            (
-                ingress
-                    .metadata
-                    .name
-                    .clone()
-                    .ok_or(AppError::MissingObjectKey("metadata.name"))?,
-                ingress
-                    .metadata
-                    .namespace
-                    .clone()
-                    .ok_or(AppError::MissingObjectKey("metadata.name"))?,
-            )
-        } else {
-            debug!("Ingress {} does not exist, creating", ingress_name);
-
-            let mut found_usable_name = false;
-            for i in 0..20 {
-                let existing = ingress_api
-                    .list(&ListParams::default().fields(&format!("metadata.name={}", ingress_name)))
-                    .await?;
-
-                if existing.items.is_empty() {
-                    found_usable_name = true;
-                } else {
-                    ingress_name = format!("tsi-{name}-{i:02}");
-                }
-            }
-
-            if !found_usable_name {
-                warn!("Failed to find a usable name for the ingress");
-                return Err(AppError::CouldNotCreateResource(
-                    "Failed to find a usable name for the ingress",
-                ));
-            }
-            (ingress_name, namespace.clone())
-        };
         let ingress = Ingress {
             metadata: ObjectMeta {
                 name: Some(ingress_name.clone()),
@@ -199,7 +202,7 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, AppError
         ingress_api
             .patch(
                 &ingress_name,
-                &PatchParams::apply("bfall.me/ingress-controller"),
+                &PatchParams::apply(built_info::PKG_NAME),
                 &Patch::Apply(&ingress),
             )
             .await?;
@@ -240,123 +243,115 @@ fn error_policy(_svc: Arc<Service>, e: &AppError, _ctx: Arc<Data>) -> Action {
 
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
+    if std::env::var("RUST_LOG").is_err() {
+        // We are just setting a default RUST_LOG value
+        unsafe {
+            std::env::set_var("RUST_LOG", "warn,tailscale_ingress_controller=info");
+        }
+    }
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
 
-    info!("Attempting to get leadership...");
-
     info!("Initializing client...");
 
     let client = Client::try_default().await?;
-    info!("currently leading");
-
-    let config = Config::default();
-
-    info!("Starting ingress generator...");
-    info!("press <enter> to force a reconciliation of all objects");
-
-    let (mut reload_tx, reload_rx) = futures::channel::mpsc::channel(0);
-    std::thread::spawn(move || {
-        for _ in std::io::BufReader::new(std::io::stdin()).lines() {
-            let _ = reload_tx.try_send(());
-        }
-    });
-
-    let svc = Api::<Service>::all(client.clone());
-    let ingress = Api::<Ingress>::all(client.clone());
 
     let lease_namespace = std::env::var("NAMESPACE").unwrap_or("default".into());
 
-    let notify = Arc::new(Notify::new());
+    let (leader_tx, leader_rx) = mpsc::channel(10);
     let leader_status = Arc::new(AtomicBool::new(false));
     let leader_guage = gauge!("leader_status");
     leader_guage.set(0);
+
+    let uuid = Uuid::new_v4().to_string();
     let leadership = Arc::new(LeaseLock::new(
         client.clone(),
         &lease_namespace,
         LeaseLockParams {
-            holder_id: "tailscale-ingress-controller".into(),
+            holder_id: uuid.clone(),
             lease_name: "tailscale-ingress-controller-lock".into(),
             lease_ttl: Duration::from_secs(15),
         },
     ));
-    let tr_leadership = leadership.clone();
-    let tr_status = leader_status.clone();
-    let tr_notify = Arc::clone(&notify);
+    let leadership_clone = leadership.clone();
+    let status_clone = leader_status.clone();
     tokio::spawn(async move {
-        let leadership = tr_leadership;
-        let status = tr_status;
-        let notify = tr_notify;
-        info!("Starting leader election...");
+        let leadership = leadership_clone;
+        let status = status_clone;
+        info!("Starting leader election uuid={uuid}...");
         loop {
             match leadership.try_acquire_or_renew().await {
-                Ok(_) => {
-                    status.store(true, Ordering::SeqCst);
-                    notify.notify_one();
+                Ok(LeaseLockResult::Acquired(_)) => {
+                    debug!("Lease acquired...");
                     leader_guage.set(1);
-                    debug!("Leader election succeeded...")
+                    status.store(true, Ordering::SeqCst);
+                    leader_tx.try_send(true).ok();
                 }
-                Err(e) => {
+                Ok(lease) => {
+                    debug!("Unable to acquire lease...\n{:?}", lease);
                     leader_guage.set(0);
                     status.store(false, Ordering::SeqCst);
+                    leader_tx.try_send(false).ok();
+                }
+                Err(e) => {
                     warn!("failed to acquire or renew leadership: {}", e);
+                    leader_guage.set(0);
+                    status.store(false, Ordering::SeqCst);
+                    leader_tx.try_send(false).ok();
                 }
             }
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
     });
 
-    // tokio::spawn(async move {
-    //     let port = std::env::var("PORT").unwrap_or("3000".into());
-    //     let server = format!("0.0.0.0:{}", port);
+    let should_end_loop = Arc::new(AtomicBool::new(true));
+    let leader_rx = Arc::new(Mutex::new(leader_rx));
+    loop {
+        let client = client.clone();
+        let leader_status = leader_status.clone();
+        let config = Config::default().debounce(Duration::from_secs(5));
+        let svc = Api::<Service>::all(client.clone());
+        let ingress = Api::<Ingress>::all(client.clone());
 
-    //     info!("Metrics listening on {}", server);
+        while !leader_rx.lock().await.recv().await.unwrap_or(false) {
+            trace!("Waiting for status notification...");
+        }
 
-    //     let dashboard_options = DashboardOptions {
-    //         custom_charts: vec![],
-    //         include_default: true,
-    //     };
+        info!("Starting controller...");
+        let should_end_loop_clone = should_end_loop.clone();
+        let leader_rx_clone = leader_rx.clone();
+        Controller::new(svc, watcher::Config::default())
+            .owns(ingress, watcher::Config::default())
+            .with_config(config)
+            .shutdown_on_signal()
+            .graceful_shutdown_on(async move {
+                while leader_rx_clone.lock().await.recv().await.unwrap_or(false) {}
+                debug!("Leadership lost, restarting controller...");
+                should_end_loop_clone.clone().store(false, Ordering::SeqCst);
+            })
+            .run(
+                reconcile,
+                error_policy,
+                Arc::new(Data {
+                    client,
+                    leader_status,
+                }),
+            )
+            .for_each(|res| async move {
+                match res {
+                    Ok(o) => trace!("reconciled {:?}", o),
+                    Err(e) => trace!("reconcile failed: {}", e),
+                }
+            })
+            .await;
 
-    //     let app = Route::new()
-    //         .nest("/", build_dashboard_route(dashboard_options))
-    //         .with(Tracing);
-
-    //     Server::new(TcpListener::bind(server))
-    //         .name("metrics")
-    //         .run(app)
-    //         .await
-    //         .unwrap();
-    // });
-
-    while leader_status.load(Ordering::Relaxed) {
-        debug!("Waiting for status notification...");
-        notify.notified().await;
+        if should_end_loop.load(Ordering::SeqCst) {
+            break;
+        }
+        should_end_loop.clone().store(true, Ordering::SeqCst);
     }
-
-    info!("Starting controller...");
-    Controller::new(svc, watcher::Config::default())
-        .owns(ingress, watcher::Config::default())
-        .with_config(config)
-        .reconcile_all_on(reload_rx.map(|_| ()))
-        .shutdown_on_signal()
-        .run(
-            reconcile,
-            error_policy,
-            Arc::new(Data {
-                client,
-                leader_status,
-            }),
-        )
-        .for_each(|res| async move {
-            match res {
-                Ok(o) => debug!("reconciled {:?}", o),
-                Err(e) => warn!("reconcile failed: {}", e),
-            }
-        })
-        .await;
-
     info!("Controller terminated...");
     leadership.step_down().await?;
 
