@@ -1,14 +1,13 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod controller;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+use derive_more::{Debug, Display, Error, From};
+#[derive(Debug, Display, Error, From)]
+pub enum Error {
+    KubeError(kube::Error),
+    LeaderElectionError(kube_leader_election::Error),
+    ShutdownSendError(tokio::sync::mpsc::error::SendError<()>),
+    #[from(skip)]
+    MissingObjectKey(#[error(not(source))] &'static str),
+    #[from(skip)]
+    CouldNotCreateResource(#[error(not(source))] &'static str),
 }

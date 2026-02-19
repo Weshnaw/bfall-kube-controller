@@ -17,6 +17,7 @@ derive_more.workspace = true
 futures.workspace = true
 metrics.workspace = true
 uuid.workspace = true
+shared.workspace = true
 
 [build-dependencies]
 built.workspace = true
