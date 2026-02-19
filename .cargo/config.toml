@@ -1,3 +1,4 @@
 [env]
 RUST_LOG = "info,tailscale_ingress_controller=debug"
 # RUST_LOG = "warn,tailscale_ingress_controller=info"
+NAMESPACE = "bfall-me"

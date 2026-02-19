@@ -58,6 +58,7 @@ spec:
       containers:
         - name: tailscale-ingress-controller
           image: ghcr.io/weshnaw/bfall-kube-controller/tailscale-ingress-controller:master
+          imagePullPolicy: Always
           env:
             - name: NAMESPACE
               valueFrom:
