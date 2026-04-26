@@ -1,6 +1,5 @@
 // TODO
 use std::{
-    collections::BTreeMap,
     pin::Pin,
     sync::{
         Arc,
@@ -9,49 +8,40 @@ use std::{
     time::Duration,
 };
 
-use k8s_openapi::api::{
-    core::v1::Service,
-    networking::v1::{
-        Ingress, IngressBackend, IngressServiceBackend, IngressSpec, IngressTLS, ServiceBackendPort,
-    },
-};
+use k8s_openapi::api::networking::v1::Ingress;
 use kube::{
-    Api, Client, Resource,
-    api::{DeleteParams, ListParams, ObjectMeta, Patch, PatchParams},
-    runtime::{
-        controller::{Action, Config},
-        reflector::Lookup,
-    },
+    Api, Client,
+    runtime::controller::{Action, Config},
 };
 use metrics::{counter, histogram};
 use shared::controller::{BFallController, CheckLeadershipStatus};
 use tokio::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
-async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
+async fn reconcile(svc: Arc<Ingress>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
     if !ctx.is_leader() {
         debug!("Skipping reconciliation as not leader");
         return Ok(Action::requeue(Duration::from_secs(30)));
     }
     let start = Instant::now();
     counter!("reconciled").increment(1);
-    let client = &ctx.client;
-    let namespace = svc
+    let _client = &ctx.client;
+    let _namespace = svc
         .metadata
         .namespace
         .as_ref()
         .ok_or(shared::Error::MissingObjectKey("metadata.namespace"))?;
-    let name = svc
+    let _name = svc
         .metadata
         .name
         .as_ref()
         .ok_or(shared::Error::MissingObjectKey("metadata.name"))?;
-    let service_uid = svc
+    let _service_uid = svc
         .metadata
         .uid
         .as_ref()
@@ -62,7 +52,7 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, shared::
 
 /// The controller triggers this on reconcile errors
 #[tracing::instrument(level = "warn", skip(_ctx, _svc))]
-fn error_policy(_svc: Arc<Service>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
+fn error_policy(_svc: Arc<Ingress>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
     counter!("reconciled_error").increment(1);
     Action::requeue(Duration::from_secs(1))
@@ -87,18 +77,18 @@ impl CheckLeadershipStatus for Data {
 
 struct Reconciler;
 
-impl shared::controller::Reconciler<Service, Data> for Reconciler {
+impl shared::controller::Reconciler<Ingress, Data> for Reconciler {
     type ReconcilerFut =
         Pin<Box<dyn Future<Output = Result<Action, shared::Error>> + Send + 'static>>;
-    fn reconcile(key: Arc<Service>, context: Arc<Data>) -> Self::ReconcilerFut {
+    fn reconcile(key: Arc<Ingress>, context: Arc<Data>) -> Self::ReconcilerFut {
         Box::pin(reconcile(key, context))
     }
 }
 
 struct ErrorPolicy;
 
-impl shared::controller::ErrorPolicy<Service, shared::Error, Data> for ErrorPolicy {
-    fn error_policy(key: Arc<Service>, error: &shared::Error, context: Arc<Data>) -> Action {
+impl shared::controller::ErrorPolicy<Ingress, shared::Error, Data> for ErrorPolicy {
+    fn error_policy(key: Arc<Ingress>, error: &shared::Error, context: Arc<Data>) -> Action {
         error_policy(key, error, context)
     }
 }

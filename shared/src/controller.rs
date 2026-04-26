@@ -26,20 +26,20 @@ use tracing::{debug, info, trace, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use uuid::Uuid;
 
-pub struct BFallController<K, Child> {
+pub struct BFallController<K /*, Child*/> {
     exit_tx: mpsc::Sender<()>,
     leader_status: Arc<AtomicBool>,
     leader_rx: mpsc::Receiver<bool>,
     main_api: Api<K>,
-    children: Vec<Api<Child>>,
+    // children: Vec<Api<Child>>,
     config: Config,
 }
 
-impl<K, Child> BFallController<K, Child>
+impl<K /*, Child*/> BFallController<K /*, Child*/>
 where
     K: Clone + Resource + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
     K::DynamicType: Eq + std::hash::Hash + Clone + std::fmt::Debug + Default + Unpin,
-    Child: Clone + DeserializeOwned + std::fmt::Debug + Send + 'static,
+    // Child: Clone + DeserializeOwned + std::fmt::Debug + Send + 'static,
 {
     pub async fn new(client: Client, config: Config, main_api: Api<K>) -> Self {
         tracing_subscriber::registry()
@@ -106,18 +106,18 @@ where
             leader_status,
             leader_rx,
             main_api,
-            children: vec![],
+            // children: vec![],
             config,
         }
     }
 
-    pub fn owns(mut self, child: Api<Child>) -> Self
-    where
-        Child: Resource<DynamicType = ()>,
-    {
-        self.children.push(child);
-        self
-    }
+    // pub fn owns(mut self, child: Api<Child>) -> Self
+    // where
+    //     Child: Resource<DynamicType = ()>,
+    // {
+    //     self.children.push(child);
+    //     self
+    // }
 
     pub async fn run<R, EP, Ctx>(self, mut context: Ctx) -> Result<(), crate::Error>
     where
@@ -126,7 +126,7 @@ where
         EP: ErrorPolicy<K, <R::ReconcilerFut as TryFuture>::Error, Ctx>,
         <R::ReconcilerFut as TryFuture>::Error: std::error::Error + Send + 'static,
         Ctx: CheckLeadershipStatus,
-        Child: Resource<DynamicType = ()>,
+        // Child: Resource<DynamicType = ()>,
     {
         let should_end_loop = Arc::new(AtomicBool::new(true));
         let leader_rx = Arc::new(Mutex::new(self.leader_rx));
@@ -143,9 +143,9 @@ where
             let leader_rx_clone = leader_rx.clone();
             let should_end_loop_clone = should_end_loop.clone();
             let controller = Controller::new(self.main_api.clone(), watcher::Config::default());
-            let controller = self.children.iter().fold(controller, |controller, child| {
-                controller.owns(child.clone(), watcher::Config::default())
-            });
+            // let controller = self.children.iter().fold(controller, |controller, child| {
+            //     controller.owns(child.clone(), watcher::Config::default())
+            // });
             controller
                 .with_config(self.config.clone())
                 .shutdown_on_signal()
