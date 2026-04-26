@@ -11,7 +11,7 @@ shared = { path = "./shared" }
 derive_more = { version = "2.1.1", features = ["from", "error", "display", "debug"] }
 serde = "1.0.228"
 tokio = { version = "1", features = ["full"] }
-futures = "0.3.31"
+futures = "0.3.32"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 metrics = "0.24.3"
