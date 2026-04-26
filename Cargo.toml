@@ -13,7 +13,7 @@ serde = "1.0.228"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3.32"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 metrics = "0.24.3"
 kube = { version = "3.0.0", features = ["runtime", "derive"] }
 kube-leader-election = "0.43.0"
