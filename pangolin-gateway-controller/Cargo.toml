@@ -1,5 +1,5 @@
 [package]
-name = "pangolin-resource-controller"
+name = "pangolin-gateway-controller"
 version.workspace = true
 edition.workspace = true
 

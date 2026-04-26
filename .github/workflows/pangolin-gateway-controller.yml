@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/pangolin-ingress-controller
+  IMAGE_NAME: ${{ github.repository }}/pangolin-gateway-controller
 
 jobs:
   build:
@@ -52,7 +52,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./pangolin-ingress-controller/Dockerfile
+          file: ./pangolin-gateway-controller/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use k8s_openapi::api::networking::v1::Ingress;
+use k8s_openapi::api::networking::v1::Gateway;
 use kube::{
     Api, Client,
     runtime::controller::{Action, Config},
@@ -23,7 +23,7 @@ pub mod built_info {
 }
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
-async fn reconcile(svc: Arc<Ingress>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
+async fn reconcile(svc: Arc<Gateway>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
     if !ctx.is_leader() {
         debug!("Skipping reconciliation as not leader");
         return Ok(Action::requeue(Duration::from_secs(30)));
@@ -52,7 +52,7 @@ async fn reconcile(svc: Arc<Ingress>, ctx: Arc<Data>) -> Result<Action, shared::
 
 /// The controller triggers this on reconcile errors
 #[tracing::instrument(level = "warn", skip(_ctx, _svc))]
-fn error_policy(_svc: Arc<Ingress>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
+fn error_policy(_svc: Arc<Gateway>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
     counter!("reconciled_error").increment(1);
     Action::requeue(Duration::from_secs(1))
@@ -77,18 +77,18 @@ impl CheckLeadershipStatus for Data {
 
 struct Reconciler;
 
-impl shared::controller::Reconciler<Ingress, Data> for Reconciler {
+impl shared::controller::Reconciler<Gateway, Data> for Reconciler {
     type ReconcilerFut =
         Pin<Box<dyn Future<Output = Result<Action, shared::Error>> + Send + 'static>>;
-    fn reconcile(key: Arc<Ingress>, context: Arc<Data>) -> Self::ReconcilerFut {
+    fn reconcile(key: Arc<Gateway>, context: Arc<Data>) -> Self::ReconcilerFut {
         Box::pin(reconcile(key, context))
     }
 }
 
 struct ErrorPolicy;
 
-impl shared::controller::ErrorPolicy<Ingress, shared::Error, Data> for ErrorPolicy {
-    fn error_policy(key: Arc<Ingress>, error: &shared::Error, context: Arc<Data>) -> Action {
+impl shared::controller::ErrorPolicy<Gateway, shared::Error, Data> for ErrorPolicy {
+    fn error_policy(key: Arc<Gateway>, error: &shared::Error, context: Arc<Data>) -> Action {
         error_policy(key, error, context)
     }
 }
@@ -97,14 +97,14 @@ async fn main() -> Result<(), shared::Error> {
     if std::env::var("RUST_LOG").is_err() {
         // We are just setting a default RUST_LOG value race conditions don't really matter here
         unsafe {
-            std::env::set_var("RUST_LOG", "warn,pangolin_resource_controller=info");
+            std::env::set_var("RUST_LOG", "warn,pangolin_gateway_controller=info");
         }
     }
 
     let client = Client::try_default().await?;
     let config = Config::default().debounce(Duration::from_secs(5));
-    let ingress = Api::<Ingress>::all(client.clone());
-    BFallController::new(client.clone(), config, ingress)
+    let gateway = Api::<Gateway>::all(client.clone());
+    BFallController::new(client.clone(), config, gateway)
         .await
         .run::<Reconciler, ErrorPolicy, Data>(Data {
             client,
