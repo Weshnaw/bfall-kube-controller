@@ -262,10 +262,10 @@ async fn main() -> Result<(), shared::Error> {
     let client = Client::try_default().await?;
     let config = Config::default().debounce(Duration::from_secs(5));
     let svc = Api::<Service>::all(client.clone());
-    // let ingress = Api::<Ingress>::::all(client.clone());
+    let ingress = Api::<Ingress>::all(client.clone());
     BFallController::new(client.clone(), config, svc)
         .await
-        // .owns(ingress)
+        .owns(ingress)
         .run::<Reconciler, ErrorPolicy, Data>(Data {
             client,
             leader_status: None,

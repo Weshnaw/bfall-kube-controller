@@ -1205,7 +1205,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pangolin-resource-controller"
+name = "pangolin-gateway-controller"
 version = "0.2.0"
 dependencies = [
  "built",
