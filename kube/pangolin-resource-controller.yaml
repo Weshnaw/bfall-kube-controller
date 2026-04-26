@@ -1,0 +1,67 @@
+# TODO
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bfall-me
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pangolin-resource-controller
+  namespace: bfall-me
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pangolin-resource-controller
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pangolin-resource-controller
+subjects:
+  - kind: ServiceAccount
+    name: pangolin-resource-controller
+    namespace: bfall-me
+roleRef:
+  kind: ClusterRole
+  name: pangolin-resource-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pangolin-resource-controller
+  namespace: bfall-me
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pangolin-resource-controller
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pangolin-resource-controller
+    spec:
+      serviceAccountName: pangolin-resource-controller
+      containers:
+        - name: pangolin-resource-controller
+          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-resource-controller:master
+          imagePullPolicy: Always
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace

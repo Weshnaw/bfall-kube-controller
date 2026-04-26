@@ -1,0 +1,45 @@
+kind: PangolinService
+apiVersion: bfall.me/v1alpha1
+metadata:
+  name: example
+  namespace: default
+spec:
+  selector:
+    app.kubernetes.io/name: example
+  defaults:
+    visibility: public
+    health-check:
+      type: kubernetes
+    # health-check:
+    #   type: basic # autopopulates the url with the current svc url, and the first http/s protocol port
+    #   path: /
+    # health-check:
+    #   type: http
+    #   url: mealie.default.svc.cluster.local
+    #   port: 80
+    #   protocol: http
+    #   path: /
+    #   method: get
+    #   healthy-interval: 15
+    #   unhealthy-interval: 30
+    #   timeout: 15
+    #   expected-response-codes: 200-300
+    #   tls: ""
+    #   headers: ""
+  ports:
+    - protocol: TCP
+      appProtocol: http
+      name: http
+      # path: example.bfall.me
+      port: 80
+      targetPort: http
+    - protocol: TCP
+      name: test
+      port: 11152
+      targetPort: test
+    - protocol: UDP
+      name: test2
+      visibility: private
+      port: 11153
+      targetPort: test2
+  type: ClusterIP

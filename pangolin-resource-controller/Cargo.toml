@@ -1,0 +1,16 @@
+[package]
+name = "pangolin-resource-controller"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+shared.workspace = true
+derive_more.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+metrics.workspace = true
+kube.workspace = true
+k8s-openapi.workspace = true
+
+[build-dependencies]
+built.workspace = true
