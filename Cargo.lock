@@ -1205,6 +1205,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pangolin-resource-controller"
+version = "0.2.0"
+dependencies = [
+ "built",
+ "derive_more",
+ "k8s-openapi",
+ "kube",
+ "metrics",
+ "shared",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
