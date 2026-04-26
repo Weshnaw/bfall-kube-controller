@@ -1707,16 +1707,12 @@ dependencies = [
 name = "shared"
 version = "0.2.0"
 dependencies = [
- "built",
  "derive_more",
  "futures",
- "k8s-openapi",
  "kube",
  "kube-leader-election",
  "metrics",
- "schemars",
  "serde",
- "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1813,19 +1809,12 @@ version = "0.2.0"
 dependencies = [
  "built",
  "derive_more",
- "futures",
  "k8s-openapi",
  "kube",
- "kube-leader-election",
  "metrics",
- "schemars",
- "serde",
- "serde_json",
  "shared",
  "tokio",
  "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
