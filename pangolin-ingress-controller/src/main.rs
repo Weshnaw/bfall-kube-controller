@@ -16,7 +16,7 @@ use k8s_openapi::api::{
     },
 };
 use kube::{
-    Api, Client, ingress,
+    Api, Client, Resource,
     api::{DeleteParams, ListParams, ObjectMeta, Patch, PatchParams},
     runtime::{
         controller::{Action, Config},
@@ -107,13 +107,13 @@ async fn main() -> Result<(), shared::Error> {
     if std::env::var("RUST_LOG").is_err() {
         // We are just setting a default RUST_LOG value race conditions don't really matter here
         unsafe {
-            std::env::set_var("RUST_LOG", "warn,pangolin_ingress_controller=info");
+            std::env::set_var("RUST_LOG", "warn,pangolin_resource_controller=info");
         }
     }
 
     let client = Client::try_default().await?;
     let config = Config::default().debounce(Duration::from_secs(5));
-    let svc = Api::<Service>::all(client.clone());
+    let ingress = Api::<Ingress>::all(client.clone());
     BFallController::new(client.clone(), config, ingress)
         .await
         .run::<Reconciler, ErrorPolicy, Data>(Data {
