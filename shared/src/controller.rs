@@ -43,7 +43,7 @@ where
     K: Clone + Resource + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
     K::DynamicType: Eq + std::hash::Hash + Clone + std::fmt::Debug + Default + Unpin,
 {
-    pub async fn new(client: Client, config: Config, main_api: Api<K>) -> Self {
+    pub async fn new(client: Client, config: Config, main_api: Api<K>, lease_name: &str) -> Self {
         tracing_subscriber::registry()
             .with(fmt::layer())
             .with(EnvFilter::from_default_env())
@@ -64,7 +64,7 @@ where
             &lease_namespace,
             LeaseLockParams {
                 holder_id: holder_id.clone(),
-                lease_name: "tailscale-ingress-controller-lock".into(),
+                lease_name: lease_name.into(),
                 lease_ttl: Duration::from_secs(15),
             },
         );
@@ -81,7 +81,7 @@ where
                         leader_guage.set(1);
                         status.store(true, Ordering::SeqCst);
                         leader_tx.try_send(true).ok();
-                    }
+                    } 
                     Ok(_) => {
                         debug!("Unable to acquire lease...");
                         leader_guage.set(0);

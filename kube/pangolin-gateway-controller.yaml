@@ -15,25 +15,34 @@ kind: ClusterRole
 metadata:
   name: pangolin-gateway-controller
 rules:
-  - apiGroups: [""]
-    resources: ["services", "endpoints"]
-    verbs: ["get", "list", "watch"]
-
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["gatewayes"]
-    verbs: ["get", "list", "watch"]
-
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["gatewayes/status"]
-    verbs: ["update", "patch"]
-
-  - apiGroups: ["networking.k8s.io"]
+  - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["gatewayclasses"]
     verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses/status"]
+    verbs: ["patch", "update"]
+
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways/status"]
+    verbs: ["patch", "update"]
+
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes/status"]
+    verbs: ["patch", "update"]
 
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resourceNames: ["pangolin-gateway-controller"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

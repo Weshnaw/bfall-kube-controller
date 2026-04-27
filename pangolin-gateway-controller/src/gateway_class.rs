@@ -99,7 +99,13 @@ pub async fn controller(
     impl Future<Output = Result<(), shared::Error>>,
 ) {
     let gateway = Api::<GatewayClass>::all(client.clone());
-    let controller = BFallController::new(client.clone(), config, gateway).await;
+    let controller = BFallController::new(
+        client.clone(),
+        config,
+        gateway,
+        "pangolin-gateway-controller",
+    )
+    .await;
 
     let store = controller.store();
 

@@ -1,3 +1,5 @@
+// TODO: migrate all the Ingress logic to be gateway HTTPRoutes instead
+
 use std::{
     collections::BTreeMap,
     pin::Pin,
@@ -7,7 +9,6 @@ use std::{
     },
     time::Duration,
 };
-
 use k8s_openapi::api::{
     core::v1::Service,
     networking::v1::{
@@ -255,17 +256,17 @@ async fn main() -> Result<(), shared::Error> {
     if std::env::var("RUST_LOG").is_err() {
         // We are just setting a default RUST_LOG value race conditions don't really matter here
         unsafe {
-            std::env::set_var("RUST_LOG", "warn,tailscale_ingress_controller=info");
+            std::env::set_var("RUST_LOG", "warn,pangolin_service_controller=info");
         }
     }
 
     let client = Client::try_default().await?;
     let config = Config::default().debounce(Duration::from_secs(5));
     let svc = Api::<Service>::all(client.clone());
-    let ingress = Api::<Ingress>::all(client.clone());
-    BFallController::new(client.clone(), config, svc, "tailscale-ingress-controller")
+    let http_route = Api::<HTTPRoute>::all(client.clone());
+    BFallController::new(client.clone(), config, svc, "pangolin-service-controller")
         .await
-        .owns(ingress)
+        .owns(http_route)
         .run::<Reconciler, ErrorPolicy, Data>(Data {
             client,
             leader_status: None,

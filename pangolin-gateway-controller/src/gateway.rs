@@ -58,6 +58,8 @@ fn error_policy(_svc: Arc<Gateway>, e: &shared::Error, _ctx: Arc<Data>) -> Actio
 
 struct Data {
     client: Client,
+    #[allow(dead_code)]
+    gc_store: Store<GatewayClass>,
     leader_status: Option<Arc<AtomicBool>>,
 }
 
@@ -94,13 +96,19 @@ impl shared::controller::ErrorPolicy<Gateway, shared::Error, Data> for ErrorPoli
 pub async fn controller(
     client: Client,
     config: Config,
-    _gc_store: Store<GatewayClass>,
+    gc_store: Store<GatewayClass>,
 ) -> (
     Store<Gateway>,
     impl Future<Output = Result<(), shared::Error>>,
 ) {
     let gateway = Api::<Gateway>::all(client.clone());
-    let controller = BFallController::new(client.clone(), config, gateway).await;
+    let controller = BFallController::new(
+        client.clone(),
+        config,
+        gateway,
+        "pangolin-gateway-controller",
+    )
+    .await;
 
     let store = controller.store();
 
@@ -108,6 +116,7 @@ pub async fn controller(
         controller
             .run::<Reconciler, ErrorPolicy, Data>(Data {
                 client,
+                gc_store,
                 leader_status: None,
             })
             .await

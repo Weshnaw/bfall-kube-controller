@@ -7,58 +7,59 @@ metadata:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: pangolin-resource-controller
+  name: pangolin-service-controller
   namespace: bfall-me
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: pangolin-resource-controller
+  name: pangolin-service-controller
 rules:
   - apiGroups: [""]
     resources: ["services"]
-    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+    verbs: ["get", "list", "watch"]
 
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
 
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+    resourceNames: ["pangolin-service-controller"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: pangolin-resource-controller
+  name: pangolin-service-controller
 subjects:
   - kind: ServiceAccount
-    name: pangolin-resource-controller
+    name: pangolin-service-controller
     namespace: bfall-me
 roleRef:
   kind: ClusterRole
-  name: pangolin-resource-controller
+  name: pangolin-service-controller
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: pangolin-resource-controller
+  name: pangolin-service-controller
   namespace: bfall-me
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: pangolin-resource-controller
+      app.kubernetes.io/name: pangolin-service-controller
   replicas: 3
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: pangolin-resource-controller
+        app.kubernetes.io/name: pangolin-service-controller
     spec:
-      serviceAccountName: pangolin-resource-controller
+      serviceAccountName: pangolin-service-controller
       containers:
-        - name: pangolin-resource-controller
-          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-resource-controller:master
+        - name: pangolin-service-controller
+          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-service-controller:master
           imagePullPolicy: Always
           env:
             - name: NAMESPACE

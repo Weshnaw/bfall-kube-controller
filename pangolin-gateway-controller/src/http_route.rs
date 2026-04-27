@@ -58,6 +58,8 @@ fn error_policy(_svc: Arc<HTTPRoute>, e: &shared::Error, _ctx: Arc<Data>) -> Act
 
 struct Data {
     client: Client,
+    #[allow(dead_code)]
+    gw_store: Store<Gateway>,
     leader_status: Option<Arc<AtomicBool>>,
 }
 
@@ -93,13 +95,14 @@ impl shared::controller::ErrorPolicy<HTTPRoute, shared::Error, Data> for ErrorPo
 pub async fn controller(
     client: Client,
     config: Config,
-    _gw_store: Store<Gateway>,
+    gw_store: Store<Gateway>,
 ) -> Result<(), shared::Error> {
     let route = Api::<HTTPRoute>::all(client.clone());
-    BFallController::new(client.clone(), config, route)
+    BFallController::new(client.clone(), config, route, "pangolin-gateway-controller")
         .await
         .run::<Reconciler, ErrorPolicy, Data>(Data {
             client,
+            gw_store,
             leader_status: None,
         })
         .await?;
