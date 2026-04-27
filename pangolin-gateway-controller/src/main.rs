@@ -34,8 +34,7 @@ async fn main() -> Result<(), shared::Error> {
     );
     gc?;
     gw?;
-    hr?;
-    Ok(())
+    hr
 }
 
 // TODO:
