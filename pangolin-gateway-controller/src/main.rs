@@ -22,14 +22,15 @@ async fn main() -> Result<(), shared::Error> {
     let client = Client::try_default().await?;
     let config = Config::default().debounce(Duration::from_secs(5));
 
-    let (gw, gwc, hr) = tokio::join!(
-        gateway_controller(client.clone(), config.clone()),
-        gateway_class_controller(client.clone(), config.clone()),
-        http_route_controller(client.clone(), config.clone())
+    let (gc_store, gc_controller) = gateway_class_controller(client.clone(), config.clone()).await;
+    let (gw_store, gw_controller) =
+        gateway_controller(client.clone(), config.clone(), gc_store).await;
+
+    let (_gc, _gw, _hr) = tokio::join!(
+        gc_controller,
+        gw_controller,
+        http_route_controller(client, config, gw_store)
     );
-    gw?;
-    gwc?;
-    hr?;
     Ok(())
 }
 

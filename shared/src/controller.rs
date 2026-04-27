@@ -12,6 +12,7 @@ use kube::{
     runtime::{
         Controller,
         controller::{Action, Config},
+        reflector::Store,
         watcher,
     },
 };
@@ -26,34 +27,15 @@ use tracing::{debug, info, trace, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use uuid::Uuid;
 
-trait ApiChild<K>
-where
-    K: Clone + Resource + std::fmt::Debug + 'static,
-    K::DynamicType: Eq + std::hash::Hash,
-{
-    fn set_owns(&self, controller: Controller<K>, config: watcher::Config) -> Controller<K>;
-}
-
-struct ApiChildWrapper<Child: Resource>(Api<Child>);
-
-impl<Child, K> ApiChild<K> for ApiChildWrapper<Child>
+pub struct BFallController<K>
 where
     K: Clone + Resource + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
     K::DynamicType: Eq + std::hash::Hash + Clone + std::fmt::Debug + Default + Unpin,
-    Child: Resource<DynamicType = ()> + Clone + DeserializeOwned + std::fmt::Debug + Send + 'static,
 {
-    fn set_owns(&self, controller: Controller<K>, config: watcher::Config) -> Controller<K> {
-        controller.owns(self.0.clone(), config)
-    }
-}
-
-pub struct BFallController<K> {
     exit_tx: mpsc::Sender<()>,
     leader_status: Arc<AtomicBool>,
-    leader_rx: mpsc::Receiver<bool>,
-    main_api: Api<K>,
-    children: Vec<Box<dyn ApiChild<K>>>,
-    config: Config,
+    leader_rx: Arc<Mutex<mpsc::Receiver<bool>>>,
+    controller: Controller<K>,
 }
 
 impl<K> BFallController<K>
@@ -120,14 +102,21 @@ where
             }
             leadership.step_down().await.ok();
         });
+        let leader_rx = Arc::new(Mutex::new(leader_rx));
+        let leader_rx_clone = leader_rx.clone();
+        let controller = Controller::new(main_api, watcher::Config::default())
+            .with_config(config)
+            .shutdown_on_signal()
+            .graceful_shutdown_on(async move {
+                while leader_rx_clone.lock().await.recv().await.unwrap_or(false) {}
+                debug!("Leadership lost, restarting controller...");
+            });
 
         Self {
             exit_tx,
             leader_status,
             leader_rx,
-            main_api,
-            children: vec![],
-            config,
+            controller,
         }
     }
 
@@ -140,8 +129,12 @@ where
             + Send
             + 'static,
     {
-        self.children.push(Box::new(ApiChildWrapper(child)));
+        self.controller = self.controller.owns(child, watcher::Config::default());
         self
+    }
+
+    pub fn store(&self) -> Store<K> {
+        self.controller.store()
     }
 
     pub async fn run<R, EP, Ctx>(self, mut context: Ctx) -> Result<(), crate::Error>
@@ -152,49 +145,28 @@ where
         <R::ReconcilerFut as TryFuture>::Error: std::error::Error + Send + 'static,
         Ctx: CheckLeadershipStatus,
     {
-        let should_end_loop = Arc::new(AtomicBool::new(true));
-        let leader_rx = Arc::new(Mutex::new(self.leader_rx));
-
         context.set_leader_atomic_bool(self.leader_status);
 
         let context = Arc::new(context);
-        loop {
-            while !leader_rx.lock().await.recv().await.unwrap_or(false) {
-                trace!("Waiting for status notification...");
-            }
-
-            info!("Starting controller...");
-            let leader_rx_clone = leader_rx.clone();
-            let should_end_loop_clone = should_end_loop.clone();
-            let controller = Controller::new(self.main_api.clone(), watcher::Config::default());
-            let controller = self.children.iter().fold(controller, |controller, child| {
-                child.set_owns(controller, watcher::Config::default())
-            });
-            controller
-                .with_config(self.config.clone())
-                .shutdown_on_signal()
-                .graceful_shutdown_on(async move {
-                    while leader_rx_clone.lock().await.recv().await.unwrap_or(false) {}
-                    debug!("Leadership lost, restarting controller...");
-                    should_end_loop_clone.store(false, Ordering::SeqCst);
-                })
-                .run(R::reconcile, EP::error_policy, context.clone())
-                .for_each(|res| async move {
-                    match res {
-                        Ok(o) => trace!("reconciled {:?}", o),
-                        Err(e) => trace!("reconcile failed: {}", e),
-                    }
-                })
-                .await;
-
-            if should_end_loop.load(Ordering::SeqCst) {
-                break;
-            }
-            should_end_loop.clone().store(true, Ordering::SeqCst);
+        while !self.leader_rx.lock().await.recv().await.unwrap_or(false) {
+            trace!("Waiting for status notification...");
         }
+
+        info!("Starting controller...");
+        self.controller
+            .run(R::reconcile, EP::error_policy, context.clone())
+            .for_each(|res| async move {
+                match res {
+                    Ok(o) => trace!("reconciled {:?}", o),
+                    Err(e) => trace!("reconcile failed: {}", e),
+                }
+            })
+            .await;
+
         info!("Controller terminated...");
         self.exit_tx.send(()).await?;
-        Ok(())
+        // I beleive there is no other way to end the loop other then some other error which should but bubbled, or we lose leadership
+        Err(crate::Error::LostLeadership)
     }
 }
 

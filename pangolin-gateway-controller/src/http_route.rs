@@ -7,10 +7,13 @@ use std::{
     time::Duration,
 };
 
-use gateway_api::httproutes::HTTPRoute;
+use gateway_api::{gateways::Gateway, httproutes::HTTPRoute};
 use kube::{
     Api, Client,
-    runtime::controller::{Action, Config},
+    runtime::{
+        controller::{Action, Config},
+        reflector::Store,
+    },
 };
 use metrics::{counter, histogram};
 use shared::controller::{BFallController, CheckLeadershipStatus};
@@ -87,7 +90,11 @@ impl shared::controller::ErrorPolicy<HTTPRoute, shared::Error, Data> for ErrorPo
         error_policy(key, error, context)
     }
 }
-pub async fn controller(client: Client, config: Config) -> Result<(), shared::Error> {
+pub async fn controller(
+    client: Client,
+    config: Config,
+    _gw_store: Store<Gateway>,
+) -> Result<(), shared::Error> {
     let route = Api::<HTTPRoute>::all(client.clone());
     BFallController::new(client.clone(), config, route)
         .await

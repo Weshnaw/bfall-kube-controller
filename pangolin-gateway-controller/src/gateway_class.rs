@@ -10,7 +10,10 @@ use std::{
 use gateway_api::gatewayclasses::GatewayClass;
 use kube::{
     Api, Client,
-    runtime::controller::{Action, Config},
+    runtime::{
+        controller::{Action, Config},
+        reflector::Store,
+    },
 };
 use metrics::{counter, histogram};
 use shared::controller::{BFallController, CheckLeadershipStatus};
@@ -87,15 +90,25 @@ impl shared::controller::ErrorPolicy<GatewayClass, shared::Error, Data> for Erro
         error_policy(key, error, context)
     }
 }
-pub async fn controller(client: Client, config: Config) -> Result<(), shared::Error> {
-    let gateway = Api::<GatewayClass>::all(client.clone());
-    BFallController::new(client.clone(), config, gateway)
-        .await
-        .run::<Reconciler, ErrorPolicy, Data>(Data {
-            client,
-            leader_status: None,
-        })
-        .await?;
 
-    Ok(())
+pub async fn controller(
+    client: Client,
+    config: Config,
+) -> (
+    Store<GatewayClass>,
+    impl Future<Output = Result<(), shared::Error>>,
+) {
+    let gateway = Api::<GatewayClass>::all(client.clone());
+    let controller = BFallController::new(client.clone(), config, gateway).await;
+
+    let store = controller.store();
+
+    (store, async move {
+        controller
+            .run::<Reconciler, ErrorPolicy, Data>(Data {
+                client,
+                leader_status: None,
+            })
+            .await
+    })
 }

@@ -3,6 +3,7 @@ pub mod controller;
 use derive_more::{Debug, Display, Error, From};
 #[derive(Debug, Display, Error, From)]
 pub enum Error {
+    LostLeadership,
     KubeError(kube::Error),
     LeaderElectionError(kube_leader_election::Error),
     ShutdownSendError(tokio::sync::mpsc::error::SendError<()>),
