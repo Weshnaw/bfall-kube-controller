@@ -16,7 +16,7 @@ use kube::{
     },
 };
 use metrics::{counter, histogram};
-use shared::controller::{BFallController, CheckLeadershipStatus};
+use shared::controller::{BFallController, CheckLeadershipStatus, LeaseDetails};
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
@@ -91,11 +91,12 @@ impl shared::controller::ErrorPolicy<GatewayClass, shared::Error, Data> for Erro
     }
 }
 
-pub async fn controller(
+pub fn controller(
     client: Client,
     config: Config,
 ) -> (
     Store<GatewayClass>,
+    LeaseDetails,
     impl Future<Output = Result<(), shared::Error>>,
 ) {
     let gateway = Api::<GatewayClass>::all(client.clone());
@@ -104,12 +105,12 @@ pub async fn controller(
         config,
         gateway,
         "pangolin-gateway-controller",
-    )
-    .await;
+    );
 
     let store = controller.store();
+    let lease_details = controller.lease_details();
 
-    (store, async move {
+    (store, lease_details, async move {
         controller
             .run::<Reconciler, ErrorPolicy, Data>(Data {
                 client,

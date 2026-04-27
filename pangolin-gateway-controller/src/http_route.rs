@@ -16,7 +16,7 @@ use kube::{
     },
 };
 use metrics::{counter, histogram};
-use shared::controller::{BFallController, CheckLeadershipStatus};
+use shared::controller::{BFallController, CheckLeadershipStatus, LeaseDetails};
 use tokio::time::Instant;
 use tracing::{debug, warn};
 
@@ -92,14 +92,15 @@ impl shared::controller::ErrorPolicy<HTTPRoute, shared::Error, Data> for ErrorPo
         error_policy(key, error, context)
     }
 }
+
 pub async fn controller(
     client: Client,
     config: Config,
     gw_store: Store<Gateway>,
+    lease_details: LeaseDetails,
 ) -> Result<(), shared::Error> {
     let route = Api::<HTTPRoute>::all(client.clone());
-    BFallController::new(client.clone(), config, route, "pangolin-gateway-controller")
-        .await
+    BFallController::with_shared_lease(config, route, lease_details)
         .run::<Reconciler, ErrorPolicy, Data>(Data {
             client,
             gw_store,

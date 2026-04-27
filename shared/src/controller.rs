@@ -19,22 +19,24 @@ use kube::{
 use kube_leader_election::{LeaseLock, LeaseLockParams, LeaseLockResult};
 use metrics::gauge;
 use serde::de::DeserializeOwned;
-use tokio::{
-    select,
-    sync::{Mutex, mpsc},
-};
+use tokio::select;
 use tracing::{debug, info, trace, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 use uuid::Uuid;
+
+#[derive(Clone)]
+pub struct LeaseDetails {
+    leader_status: Arc<AtomicBool>,
+    leader_rx: flume::Receiver<bool>,
+}
 
 pub struct BFallController<K>
 where
     K: Clone + Resource + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
     K::DynamicType: Eq + std::hash::Hash + Clone + std::fmt::Debug + Default + Unpin,
 {
-    exit_tx: mpsc::Sender<()>,
-    leader_status: Arc<AtomicBool>,
-    leader_rx: Arc<Mutex<mpsc::Receiver<bool>>>,
+    exit_tx: Option<flume::Sender<()>>,
+    lease_details: LeaseDetails,
     controller: Controller<K>,
 }
 
@@ -43,7 +45,7 @@ where
     K: Clone + Resource + DeserializeOwned + std::fmt::Debug + Send + Sync + 'static,
     K::DynamicType: Eq + std::hash::Hash + Clone + std::fmt::Debug + Default + Unpin,
 {
-    pub async fn new(client: Client, config: Config, main_api: Api<K>, lease_name: &str) -> Self {
+    pub fn new(client: Client, config: Config, main_api: Api<K>, lease_name: &str) -> Self {
         tracing_subscriber::registry()
             .with(fmt::layer())
             .with(EnvFilter::from_default_env())
@@ -53,7 +55,7 @@ where
 
         let lease_namespace = std::env::var("NAMESPACE").unwrap_or("default".into());
 
-        let (leader_tx, leader_rx) = mpsc::channel(32);
+        let (leader_tx, leader_rx) = flume::unbounded();
         let leader_status = Arc::new(AtomicBool::new(false));
         let leader_guage = gauge!("leader_status");
         leader_guage.set(0);
@@ -69,7 +71,7 @@ where
             },
         );
         let status_clone = leader_status.clone();
-        let (exit_tx, mut exit_rx) = mpsc::channel::<()>(1);
+        let (exit_tx, exit_rx) = flume::unbounded();
 
         tokio::spawn(async move {
             let status = status_clone;
@@ -81,7 +83,7 @@ where
                         leader_guage.set(1);
                         status.store(true, Ordering::SeqCst);
                         leader_tx.try_send(true).ok();
-                    } 
+                    }
                     Ok(_) => {
                         debug!("Unable to acquire lease...");
                         leader_guage.set(0);
@@ -97,25 +99,48 @@ where
                 }
                 select! {
                     _ = tokio::time::sleep(Duration::from_secs(10)) => {}
-                    _ = exit_rx.recv() => break,
+                    _ = exit_rx.recv_async() => break,
                 }
             }
             leadership.step_down().await.ok();
         });
-        let leader_rx = Arc::new(Mutex::new(leader_rx));
+
         let leader_rx_clone = leader_rx.clone();
         let controller = Controller::new(main_api, watcher::Config::default())
             .with_config(config)
             .shutdown_on_signal()
             .graceful_shutdown_on(async move {
-                while leader_rx_clone.lock().await.recv().await.unwrap_or(false) {}
+                while leader_rx_clone.recv_async().await.unwrap_or(false) {}
                 debug!("Leadership lost, restarting controller...");
             });
 
         Self {
-            exit_tx,
-            leader_status,
-            leader_rx,
+            exit_tx: Option::Some(exit_tx),
+            lease_details: LeaseDetails {
+                leader_status,
+                leader_rx,
+            },
+            controller,
+        }
+    }
+
+    pub fn with_shared_lease(
+        config: Config,
+        main_api: Api<K>,
+        lease_details: LeaseDetails,
+    ) -> Self {
+        let leader_rx_clone = lease_details.leader_rx.clone();
+        let controller = Controller::new(main_api, watcher::Config::default())
+            .with_config(config)
+            .shutdown_on_signal()
+            .graceful_shutdown_on(async move {
+                while leader_rx_clone.recv_async().await.unwrap_or(false) {}
+                debug!("Leadership lost, restarting controller...");
+            });
+
+        Self {
+            exit_tx: None,
+            lease_details,
             controller,
         }
     }
@@ -137,6 +162,10 @@ where
         self.controller.store()
     }
 
+    pub fn lease_details(&self) -> LeaseDetails {
+        self.lease_details.clone()
+    }
+
     pub async fn run<R, EP, Ctx>(self, mut context: Ctx) -> Result<(), crate::Error>
     where
         R: Reconciler<K, Ctx>,
@@ -145,10 +174,16 @@ where
         <R::ReconcilerFut as TryFuture>::Error: std::error::Error + Send + 'static,
         Ctx: CheckLeadershipStatus,
     {
-        context.set_leader_atomic_bool(self.leader_status);
+        context.set_leader_atomic_bool(self.lease_details.leader_status);
 
         let context = Arc::new(context);
-        while !self.leader_rx.lock().await.recv().await.unwrap_or(false) {
+        while !self
+            .lease_details
+            .leader_rx
+            .recv_async()
+            .await
+            .unwrap_or(false)
+        {
             trace!("Waiting for status notification...");
         }
 
@@ -164,7 +199,9 @@ where
             .await;
 
         info!("Controller terminated...");
-        self.exit_tx.send(()).await?;
+        if let Some(exit_tx) = self.exit_tx {
+            exit_tx.send_async(()).await?;
+        }
         // I beleive there is no other way to end the loop other then some other error which should but bubbled, or we lose leadership
         Err(crate::Error::LostLeadership)
     }

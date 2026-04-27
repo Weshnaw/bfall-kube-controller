@@ -264,7 +264,6 @@ async fn main() -> Result<(), shared::Error> {
     let svc = Api::<Service>::all(client.clone());
     let ingress = Api::<Ingress>::all(client.clone());
     BFallController::new(client.clone(), config, svc, "tailscale-ingress-controller")
-        .await
         .owns(ingress)
         .run::<Reconciler, ErrorPolicy, Data>(Data {
             client,
