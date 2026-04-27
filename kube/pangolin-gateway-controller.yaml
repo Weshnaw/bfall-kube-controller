@@ -43,6 +43,15 @@ rules:
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
     resourceNames: ["pangolin-gateway-controller"]
+
+  - apiGroups: ["bfall.me"]
+    resources: ["pangolinconfigs"]
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["pangolin-secret"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -56,6 +65,52 @@ roleRef:
   kind: ClusterRole
   name: pangolin-gateway-controller
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: pangolinconfigs.bfall.me
+spec:
+  group: bfall.me
+  names:
+    categories: []
+    kind: PangolinConfig
+    plural: pangolinconfigs
+    shortNames: []
+    singular: pangolinconfig
+  scope: Cluster
+  versions:
+    - additionalPrinterColumns: []
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          description: Configuration for the Pangolin gateway controller
+          properties:
+            spec:
+              properties:
+                api:
+                  type: string
+                apiKeyRef:
+                  properties:
+                    key:
+                      type: string
+                    name:
+                      type: string
+                  required:
+                    - key
+                    - name
+                  type: object
+              required:
+                - api
+                - apiKeyRef
+              type: object
+          required:
+            - spec
+          title: PangolinConfig
+          type: object
+      served: true
+      storage: true
+      subresources: {}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -82,10 +137,3 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
----
-apiVersion: networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: pangolin
-spec:
-  controller: bfall.me/pangolin-gateway-controller

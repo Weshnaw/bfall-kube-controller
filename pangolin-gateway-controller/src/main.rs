@@ -6,10 +6,6 @@ use pangolin_gateway_controller::{
     gateway_class_controller, gateway_controller, http_route_controller,
 };
 
-pub mod built_info {
-    include!(concat!(env!("OUT_DIR"), "/built.rs"));
-}
-
 #[tokio::main]
 async fn main() -> Result<(), shared::Error> {
     if std::env::var("RUST_LOG").is_err() {

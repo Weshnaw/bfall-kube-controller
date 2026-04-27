@@ -1,9 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: pangolin
+spec:
+  controller: bfall.me/pangolin-gateway-controller
+  parametersRef:
+    group: bfall.me
+    kind: PangolinConfig
+    name: pangolin-gateway-config
+---
+apiVersion: bfall.me/v1alpha1
+kind: PangolinConfig
+metadata:
+  name: pangolin-gateway-config
+spec:
+  api: https://api.pangolin.bfall.me
+  apiKeyRef:
+    name: pangolin-secret
+    key: api-key
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pangolin-api-key
+  namespace: kube-system
+type: Opaque
+stringData:
+  api-key: "your-secret-api-key-here"
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: example-gateway
 spec:
   gatewayClassName: pangolin
+  infrastructure:
+    labels:
+      bfall.me/pangolin-org: "my-org"
+      bfall.me/pangolin-visibility: "public"
   listeners:
     - name: http
       port: 80

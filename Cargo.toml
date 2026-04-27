@@ -10,6 +10,8 @@ edition = "2024"
 shared = { path = "./shared" }
 derive_more = { version = "2.1.1", features = ["from", "error", "display", "debug"] }
 serde = "1.0.228"
+serde_json = "1.0.149"
+yaml_serde = "0.10.4"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3.31"
 tracing = "0.1.44"
@@ -22,3 +24,4 @@ gateway-api = "0.21"
 uuid = { version = "1.21.0", features = ["v4"] }
 built = { version = "0.8.0", features = ["git2"] }
 flume = "0.12.0"
+schemars = "1.2.1"
