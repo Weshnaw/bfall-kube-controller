@@ -106,7 +106,5 @@ pub async fn controller(
             gw_store,
             leader_status: None,
         })
-        .await?;
-
-    Ok(())
+        .await
 }

@@ -27,11 +27,14 @@ async fn main() -> Result<(), shared::Error> {
         lease_details.clone(),
     );
 
-    let (_gc, _gw, _hr) = tokio::join!(
+    let (gc, gw, hr) = tokio::join!(
         gc_controller,
         gw_controller,
         http_route_controller(client, config, gw_store, lease_details)
     );
+    gc?;
+    gw?;
+    hr?;
     Ok(())
 }
 

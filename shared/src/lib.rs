@@ -1,6 +1,7 @@
 pub mod controller;
 
 use derive_more::{Debug, Display, Error, From};
+
 #[derive(Debug, Display, Error, From)]
 pub enum Error {
     LostLeadership,

@@ -269,7 +269,5 @@ async fn main() -> Result<(), shared::Error> {
             client,
             leader_status: None,
         })
-        .await?;
-
-    Ok(())
+        .await
 }
