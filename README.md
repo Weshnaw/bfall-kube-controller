@@ -14,6 +14,11 @@ see the example.yaml within the tailscale-ingress-controller so see a working se
 ## Deployment Service Controller
 WIP
 
+## Pangolin Gateway Controller
+download gateway CRDs: https://gateway-api.sigs.k8s.io/guides/getting-started/#installing-gateway-api
+`kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.5.0/standard-install.yaml`
+README WIP
+
 # TODO:
 - create a controller that will create a service for labeled deployments
 - maybe: create a controller that will create a PVC, would like to look into creating custom fields for an existing spec 

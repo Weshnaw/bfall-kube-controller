@@ -1,11 +1,4 @@
-use std::{
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 use gateway_api::gatewayclasses::GatewayClass;
 use kube::{
@@ -18,9 +11,9 @@ use kube::{
 use metrics::{counter, histogram};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use shared::controller::{BFallController, CheckLeadershipStatus, LeaseDetails};
-use tokio::time::Instant;
-use tracing::{debug, warn};
+use shared::controller::{BFallController, CheckLeadershipStatus};
+use tokio::{sync::watch, time::Instant};
+use tracing::{debug, info, warn};
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
 async fn reconcile(svc: Arc<GatewayClass>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
@@ -60,17 +53,17 @@ fn error_policy(_svc: Arc<GatewayClass>, e: &shared::Error, _ctx: Arc<Data>) -> 
 
 struct Data {
     client: Client,
-    leader_status: Option<Arc<AtomicBool>>,
+    leader_status: Option<watch::Receiver<bool>>,
 }
 
 impl CheckLeadershipStatus for Data {
     fn is_leader(&self) -> bool {
         self.leader_status
             .as_ref()
-            .is_some_and(|status| status.load(Ordering::Relaxed))
+            .is_some_and(|status| *status.borrow())
     }
 
-    fn set_leader_atomic_bool(&mut self, status: Arc<AtomicBool>) {
+    fn set_leader(&mut self, status: watch::Receiver<bool>) {
         self.leader_status = Some(status);
     }
 }
@@ -98,9 +91,11 @@ pub fn controller(
     config: Config,
 ) -> (
     Store<GatewayClass>,
-    LeaseDetails,
+    watch::Receiver<bool>,
     impl Future<Output = Result<(), shared::Error>>,
 ) {
+    info!("Initializing 'GatewayClass' Controller...");
+
     let gateway = Api::<GatewayClass>::all(client.clone());
     let controller = BFallController::new(
         client.clone(),

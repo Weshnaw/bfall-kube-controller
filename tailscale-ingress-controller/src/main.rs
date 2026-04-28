@@ -1,12 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{collections::BTreeMap, pin::Pin, sync::Arc, time::Duration};
 
 use k8s_openapi::api::{
     core::v1::Service,
@@ -24,8 +16,9 @@ use kube::{
 };
 use metrics::{counter, histogram};
 use shared::controller::{BFallController, CheckLeadershipStatus};
-use tokio::time::Instant;
+use tokio::{sync::watch, time::Instant};
 use tracing::{debug, info, warn};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -33,10 +26,6 @@ pub mod built_info {
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
 async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
-    if !ctx.is_leader() {
-        debug!("Skipping reconciliation as not leader");
-        return Ok(Action::requeue(Duration::from_secs(30)));
-    }
     let start = Instant::now();
     counter!("reconciled").increment(1);
     let client = &ctx.client;
@@ -174,6 +163,10 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, shared::
 
         counter!("reconciled_patch").increment(1);
         // Use patch with apply to create or update the ingress
+        if !ctx.is_leader() {
+            warn!("Skipping reconciliation as not leader");
+            return Ok(Action::requeue(Duration::from_secs(30)));
+        }
         ingress_api
             .patch(
                 &ingress_name,
@@ -218,17 +211,17 @@ fn error_policy(_svc: Arc<Service>, e: &shared::Error, _ctx: Arc<Data>) -> Actio
 
 struct Data {
     client: Client,
-    leader_status: Option<Arc<AtomicBool>>,
+    leader_status: Option<watch::Receiver<bool>>,
 }
 
 impl CheckLeadershipStatus for Data {
     fn is_leader(&self) -> bool {
         self.leader_status
             .as_ref()
-            .is_some_and(|status| status.load(Ordering::Relaxed))
+            .is_some_and(|status| *status.borrow())
     }
 
-    fn set_leader_atomic_bool(&mut self, status: Arc<AtomicBool>) {
+    fn set_leader(&mut self, status: watch::Receiver<bool>) {
         self.leader_status = Some(status);
     }
 }
@@ -252,6 +245,11 @@ impl shared::controller::ErrorPolicy<Service, shared::Error, Data> for ErrorPoli
 }
 #[tokio::main]
 async fn main() -> Result<(), shared::Error> {
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
     if std::env::var("RUST_LOG").is_err() {
         // We are just setting a default RUST_LOG value race conditions don't really matter here
         unsafe {

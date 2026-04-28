@@ -7,7 +7,6 @@ pub enum Error {
     LostLeadership,
     KubeError(kube::Error),
     LeaderElectionError(kube_leader_election::Error),
-    ShutdownSendError(flume::SendError<()>),
     #[from(skip)]
     MissingObjectKey(#[error(not(source))] &'static str),
     #[from(skip)]
