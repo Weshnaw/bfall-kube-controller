@@ -1,3 +1,4 @@
+pub mod crd;
 mod gateway;
 mod gateway_class;
 mod http_route;
@@ -9,3 +10,5 @@ pub use http_route::controller as http_route_controller;
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
+
+const CONTROLLER_NAME: &str = "bfall.me/pangolin-gateway-controller";

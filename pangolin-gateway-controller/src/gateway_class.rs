@@ -1,53 +1,78 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
-use gateway_api::gatewayclasses::GatewayClass;
+use gateway_api::{
+    constants::{GatewayClassConditionReason, GatewayClassConditionType},
+    gatewayclasses::GatewayClass,
+};
+use k8s_openapi::{
+    apimachinery::pkg::apis::meta::v1::{Condition, Time},
+    jiff::Timestamp,
+};
 use kube::{
-    Api, Client, CustomResource,
+    Api, Client, ResourceExt,
+    api::{Patch, PatchParams},
     runtime::{
         controller::{Action, Config},
         reflector::Store,
     },
 };
 use metrics::{counter, histogram};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde_json::json;
 use shared::controller::{BFallController, CheckLeadershipStatus};
 use tokio::{sync::watch, time::Instant};
 use tracing::{debug, info, warn};
 
-#[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
-async fn reconcile(svc: Arc<GatewayClass>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
+use crate::CONTROLLER_NAME;
+
+#[tracing::instrument(level = "debug", skip(ctx, gc), fields(gc.name = gc.metadata.name, gc.namespace=gc.metadata.namespace))]
+async fn reconcile(gc: Arc<GatewayClass>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
+    let start = Instant::now();
+    let name = gc.name_any();
+
+    if gc.spec.controller_name != CONTROLLER_NAME {
+        return Ok(Action::await_change());
+    }
+
+    counter!("gc_reconciled").increment(1);
+
+    info!(name, "Reconciling GatewayClass");
+
+    let api: Api<GatewayClass> = Api::all(ctx.client.clone());
+
+    let condition = Condition {
+        last_transition_time: Time(Timestamp::now()),
+        message: "GatewayClass is accepted by the gateway-controller".into(),
+        observed_generation: gc.metadata.generation,
+        reason: GatewayClassConditionReason::Accepted.to_string(),
+        status: "True".into(),
+        type_: GatewayClassConditionType::Accepted.to_string(),
+    };
+
+    // TODO: check API details, and mark gateway with status if not valid
+    // TODO: graceful shutdown update the conditions to false
+    let status_patch = json!({
+        "status": {
+            "conditions": [condition],
+        }
+    });
     if !ctx.is_leader() {
         debug!("Skipping reconciliation as not leader");
         return Ok(Action::requeue(Duration::from_secs(30)));
     }
-    let start = Instant::now();
-    counter!("reconciled").increment(1);
-    let _client = &ctx.client;
-    let _namespace = svc
-        .metadata
-        .namespace
-        .as_ref()
-        .ok_or(shared::Error::MissingObjectKey("metadata.namespace"))?;
-    let _name = svc
-        .metadata
-        .name
-        .as_ref()
-        .ok_or(shared::Error::MissingObjectKey("metadata.name"))?;
-    let _service_uid = svc
-        .metadata
-        .uid
-        .as_ref()
-        .ok_or(shared::Error::MissingObjectKey("metadata.uid"))?;
-    histogram!("reconcile_time").record(start.elapsed().as_secs_f32());
+
+    api.patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
+        .await?;
+    info!(name, "GatewayClass marked Accepted");
+
+    histogram!("gc_reconcile_time").record(start.elapsed().as_secs_f32());
     Ok(Action::requeue(Duration::from_mins(5)))
 }
 
 /// The controller triggers this on reconcile errors
-#[tracing::instrument(level = "warn", skip(_ctx, _svc))]
-fn error_policy(_svc: Arc<GatewayClass>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
+#[tracing::instrument(level = "warn", skip(_ctx, _gc))]
+fn error_policy(_gc: Arc<GatewayClass>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
-    counter!("reconciled_error").increment(1);
+    counter!("gc_reconciled_error").increment(1);
     Action::requeue(Duration::from_secs(1))
 }
 
@@ -115,25 +140,4 @@ pub fn controller(
             })
             .await
     })
-}
-
-#[derive(CustomResource, Deserialize, Serialize, Clone, Debug, JsonSchema)]
-#[kube(
-    group = "bfall.me",
-    version = "v1alpha1",
-    kind = "PangolinConfig",
-    doc = "Configuration for the Pangolin gateway controller"
-)]
-#[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
-pub struct PangolinConfigSpec {
-    pub api: String,
-    pub api_key_ref: SecretKeyRef,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SecretKeyRef {
-    pub name: String,
-    pub key: String,
 }

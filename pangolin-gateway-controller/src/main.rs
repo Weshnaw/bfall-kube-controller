@@ -29,14 +29,14 @@ async fn main() -> Result<(), shared::Error> {
     let (gw_store, gw_controller) = gateway_controller(
         client.clone(),
         config.clone(),
-        gc_store,
+        gc_store.clone(),
         lease_details.clone(),
     );
 
     tokio::try_join!(
         gc_controller,
         gw_controller,
-        http_route_controller(client, config, gw_store, lease_details)
+        http_route_controller(client, config, gw_store, gc_store, lease_details)
     )
     .map(|_| ())
 }
