@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
     doc = "Configuration for the Pangolin gateway controller"
 )]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
 pub struct PangolinConfigSpec {
     pub api: String,
     pub api_key_ref: SecretKeyRef,
@@ -21,4 +20,5 @@ pub struct PangolinConfigSpec {
 pub struct SecretKeyRef {
     pub name: String,
     pub key: String,
+    pub namespace: Option<String>,
 }

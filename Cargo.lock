@@ -1242,6 +1242,7 @@ version = "0.2.0"
 dependencies = [
  "built",
  "derive_more",
+ "futures",
  "gateway-api",
  "k8s-openapi",
  "kube",

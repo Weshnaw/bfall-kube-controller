@@ -2,7 +2,6 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
   name: pangolin
-  namespace: default
 spec:
   controllerName: bfall.me/pangolin-gateway-controller
   parametersRef:
@@ -14,17 +13,17 @@ apiVersion: bfall.me/v1alpha1
 kind: PangolinConfig
 metadata:
   name: pangolin-gateway-config
-  namespace: default
 spec:
   api: https://api.pangolin.bfall.me
   apiKeyRef:
     name: pangolin-secret
     key: api-key
+    namespace: default
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: pangolin-api-key
+  name: pangolin-secret
   namespace: default
 type: Opaque
 stringData:
@@ -39,8 +38,14 @@ spec:
   gatewayClassName: pangolin
   infrastructure:
     labels:
-      bfall.me/pangolin-org: "my-org"
+      bfall.me/pangolin-org: "bfall-me"
       bfall.me/pangolin-visibility: "public"
+      bfall.me/pangolin-site: "unripe-scytodes-thoracica"
+      # TODO: just create a custom CRD for the complex configs
+      # - Access Control
+      # - Authentication Methods
+      # - OTP
+      # - Rules
   listeners:
     - name: http
       port: 80

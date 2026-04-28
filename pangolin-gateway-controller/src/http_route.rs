@@ -1,10 +1,12 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
+use futures::{StreamExt, stream};
 use gateway_api::{
     gatewayclasses::GatewayClass,
     gateways::Gateway,
     httproutes::{HTTPRoute, HttpRouteParentRefs},
 };
+use k8s_openapi::api::core::v1::Secret;
 use kube::{
     Api, Client, ResourceExt,
     runtime::{
@@ -17,6 +19,8 @@ use shared::controller::{BFallController, CheckLeadershipStatus};
 use tokio::{sync::watch, time::Instant};
 use tracing::{debug, info, warn};
 
+use crate::crd::PangolinConfig;
+
 #[tracing::instrument(level = "debug", skip(ctx, hr), fields(hr.name = hr.metadata.name, hr.namespace=hr.metadata.namespace))]
 async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
     let start = Instant::now();
@@ -27,13 +31,25 @@ async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared:
         .as_ref()
         .ok_or(shared::Error::MissingObjectKey("spec.parent_refs"))?;
 
-    for gw_ref in gateway_refs {
-        let x = retrieve_pangolin_api_details(gw_ref, hr.as_ref(), ctx.as_ref());
+    let pangolin_configs: Vec<_> = stream::iter(gateway_refs)
+        .filter_map(|gw_ref| async {
+            retrieve_pangolin_api_details(gw_ref, hr.as_ref(), ctx.as_ref()).await
+        })
+        .collect()
+        .await;
 
-        if x.is_none() {
-            return Ok(Action::requeue(Duration::from_secs(5)));
-        }
+    if pangolin_configs.is_empty() {
+        warn!("No valid pangolin configs could be created...");
+        return Ok(Action::requeue(Duration::from_secs(5)));
     }
+
+    // TODO: gather hostnames
+    // TODO: compare hostnames to gateway listener hostnames and to the pangolin org domains
+    // TODO: check if there are any pangolin conflicts
+    // TODO: retrieve the rules
+    //         - path prefix == match path
+    // TODO: map everything to kubernetes fqdn
+    // TODO: send the updates to pangolin
 
     // Do API Updates
     if !ctx.is_leader() {
@@ -44,11 +60,11 @@ async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared:
     Ok(Action::requeue(Duration::from_mins(5)))
 }
 
-fn retrieve_pangolin_api_details(
+async fn retrieve_pangolin_api_details(
     gw_ref: &HttpRouteParentRefs,
     hr: &HTTPRoute,
     data: &Data,
-) -> Option<()> {
+) -> Option<PangolinApiConfig> {
     let client = &data.client;
     let default_ns = client.default_namespace();
     let gw_store = &data.gw_store;
@@ -64,7 +80,7 @@ fn retrieve_pangolin_api_details(
 
     let gw_ref = ObjectRef::<Gateway>::new(gw_name).within(gw_namespace);
 
-    info!("Retrieving gateway details: {}:{}", gw_namespace, &gw_name);
+    debug!("Retrieving gateway details: {}:{}", gw_namespace, &gw_name);
     let Some(gw) = gw_store.get(&gw_ref) else {
         warn!(
             http_route = &hr_name,
@@ -79,7 +95,7 @@ fn retrieve_pangolin_api_details(
 
     let gc_ref = ObjectRef::<GatewayClass>::new(gc_name);
 
-    info!("Retrieving gateway class details: {}", gc_name);
+    debug!("Retrieving gateway class details: {}", gc_name);
     let Some(gc) = gc_store.get(&gc_ref) else {
         warn!(
             http_route = &hr_name,
@@ -90,7 +106,88 @@ fn retrieve_pangolin_api_details(
         return None;
     };
 
-    Some(())
+    debug!("Retrieving params_ref");
+    let Some(params_ref) = &gc.spec.parameters_ref else {
+        warn!("No params ref found...");
+        // TODO: maybe add configured default params assigned to the deployment
+        return None;
+    };
+
+    // TODO: actually do error processing instead of just '?' all the options
+    let config_name = &params_ref.name;
+    info!("Retrieving PangolinConfig: {}", config_name);
+    let config_api: Api<PangolinConfig> = Api::all(client.clone());
+    let config = match config_api.get(config_name).await {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            warn!("No pangolin config found: {}", e);
+            return None;
+        }
+    };
+
+    // Fetch the Secret referenced by the config
+    let secret_name = &config.spec.api_key_ref.name;
+    let secret_ns = &config
+        .spec
+        .api_key_ref
+        .namespace
+        .as_deref()
+        .unwrap_or(default_ns);
+    debug!("Retrieving Secret: {}:{}", secret_ns, secret_name);
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), secret_ns);
+    let secret = match secrets.get(secret_name).await {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("No secret found: {}", e);
+            return None;
+        }
+    };
+
+    debug!("Retrieving Data");
+    let api_endpoint = config.spec.api;
+    let infra_labels = gw.spec.infrastructure.as_ref()?.labels.as_ref()?;
+    let org = infra_labels.get("bfall.me/pangolin-org").cloned()?;
+    let visibility =
+        infra_labels
+            .get("bfall.me/pangolin-visibility")
+            .and_then(|label| match label.to_ascii_lowercase().as_str() {
+                "public" => Some(Visibility::Public),
+                "private" => Some(Visibility::Private),
+                _ => None,
+            })?;
+    let site = infra_labels.get("bfall.me/pangolin-site").cloned()?;
+
+    let api_key = str::from_utf8(&secret.data?.get(&config.spec.api_key_ref.key)?.0)
+        .ok()?
+        .to_string();
+
+    info!(
+        "Obtained Pangolin API details from Gateway: {}:{}",
+        gw_namespace, &gw_name
+    );
+    Some(PangolinApiConfig {
+        api_endpoint,
+        org,
+        visibility,
+        site,
+        api_key,
+    })
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct PangolinApiConfig {
+    api_endpoint: String,
+    api_key: String,
+    org: String,
+    visibility: Visibility,
+    site: String,
+}
+
+#[derive(Debug)]
+enum Visibility {
+    Public,
+    Private,
 }
 
 /// The controller triggers this on reconcile errors
@@ -101,7 +198,6 @@ fn error_policy(_svc: Arc<HTTPRoute>, e: &shared::Error, _ctx: Arc<Data>) -> Act
     Action::requeue(Duration::from_secs(1))
 }
 
-#[allow(dead_code)]
 struct Data {
     client: Client,
     gw_store: Store<Gateway>,

@@ -68,7 +68,7 @@ async fn reconcile(gw: Arc<Gateway>, ctx: Arc<Data>) -> Result<Action, shared::E
         last_transition_time: now,
         message: "Gateway is programmed".into(),
         observed_generation: generation,
-        reason: GatewayConditionReason::Pending.to_string(),
+        reason: GatewayConditionReason::Accepted.to_string(),
         status: "True".into(),
         type_: GatewayConditionType::Programmed.to_string(),
     };
