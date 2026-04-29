@@ -10,7 +10,16 @@ fn main() {
     let out_dir = env::var("OUT_DIR").expect("Failed to obtain 'OUT_DIR'");
     let dest_path = Path::new(&out_dir).join("crds.yaml");
 
-    let crd = PangolinConfig::crd();
-    let yaml = yaml_serde::to_string(&crd).expect("Failed to stringify CRD");
-    fs::write(&dest_path, yaml).expect("Failed to write crd yaml");
+    fs::write(
+        &dest_path,
+        combine_yamls(&[PangolinConfig::crd(), RawRoute::crd()]),
+    )
+    .expect("Failed to write crd yaml");
+}
+
+fn combine_yamls<T: Serialize>(docs: &[T]) -> String {
+    docs.iter()
+        .map(|doc| yaml_serde::to_string(doc).expect("Failed to stringigy yaml"))
+        .collect::<Vec<_>>()
+        .join("---\n")
 }

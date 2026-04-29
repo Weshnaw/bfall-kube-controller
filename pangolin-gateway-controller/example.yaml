@@ -40,8 +40,10 @@ spec:
     labels:
       bfall.me/pangolin-org: "bfall-me"
       bfall.me/pangolin-visibility: "public"
+      # TODO: I wonder if you could obtain the site programatically, maybe by specifiying the pangolin newt node name/namespace
       bfall.me/pangolin-site: "unripe-scytodes-thoracica"
-      # TODO: just create a custom CRD for the complex configs
+      # TODO: just create a custom CRD for the complex configs; might be able to use HttpRouteRulesBackendRefsFiltersExtensionRef to specify auth rules on a per route level as well
+      #       research the filters specifications to see if some of these are already implented and use the FiltersExtensionRef for the rest
       # - Access Control
       # - Authentication Methods
       # - OTP

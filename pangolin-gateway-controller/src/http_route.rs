@@ -60,6 +60,7 @@ async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared:
     Ok(Action::requeue(Duration::from_mins(5)))
 }
 
+// TODO: actually do error processing instead of just '?' all the options
 async fn retrieve_pangolin_api_details(
     gw_ref: &HttpRouteParentRefs,
     hr: &HTTPRoute,
@@ -113,7 +114,6 @@ async fn retrieve_pangolin_api_details(
         return None;
     };
 
-    // TODO: actually do error processing instead of just '?' all the options
     let config_name = &params_ref.name;
     info!("Retrieving PangolinConfig: {}", config_name);
     let config_api: Api<PangolinConfig> = Api::all(client.clone());
