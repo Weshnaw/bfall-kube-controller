@@ -73,3 +73,18 @@ spec:
       backendRefs:
         - name: portfolio
           port: 80
+---
+apiVersion: bfall.me/v1alpha1
+kind: RawRoute
+metadata:
+  name: example-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: example-gateway
+      port: 1111
+  rules:
+    - backendRefs:
+        - name: portfolio
+          port: 80
+          protocol: tcp

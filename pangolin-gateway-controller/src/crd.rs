@@ -1,3 +1,4 @@
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition;
 use kube::CustomResource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -42,7 +43,10 @@ pub struct SecretKeyRef {
     version = "v1alpha1",
     namespaced,
     kind = "RawRoute",
-    doc = "Adding a raw TCP/UDP route to a given gateway"
+    doc = "Adding a raw TCP/UDP route to a given gateway",
+    status = "RawRouteStatus",
+    printcolumn = r#"{"name":"Address","type":"string","jsonPath":".status.address"}"#,
+    printcolumn = r#"{"name":"Ready","type":"string","jsonPath":".status.conditions[?(@.type=='Ready')].status"}"#
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RawRouteSpec {
@@ -105,6 +109,13 @@ pub struct RawRouteSpec {
     /// Rules are a list of UDP/TCP matchers, and actions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<Vec<RawRouteRules>>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RawRouteStatus {
+    pub address: Option<String>,
+    pub conditions: Option<Vec<Condition>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema, Default, PartialEq)]
