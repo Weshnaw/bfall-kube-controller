@@ -1,6 +1,6 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
-use gateway_api::{
+use gateway_api::apis::experimental::{
     constants::{GatewayClassConditionReason, GatewayClassConditionType},
     gatewayclasses::GatewayClass,
 };

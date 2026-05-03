@@ -66,7 +66,7 @@ spec:
   hostnames:
     - gw-test.bfall.me
   rules:
-    # NOTE: this match is pangolin's default anyway
+    # TODO: remove this match in the example as it is the default anyway
     - matches:
         - path:
             type: PathPrefix
@@ -75,18 +75,29 @@ spec:
         - name: portfolio
           port: 80
 ---
-apiVersion: bfall.me/v1alpha1
-kind: RawRoute
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
 metadata:
-  name: example-route
-  namespace: default
+  name: example-tcp-route
 spec:
   parentRefs:
     - name: example-gateway
-      port: 1111
+      port: 6001
   rules:
     - backendRefs:
         - name: portfolio
           port: 80
-          protocol: tcp
-# TODO: create another controller that can take a svc with a couple labels i.e. `gw-name: example-gateway`; `ports: portfolio, anotherport` and turn it into a RawRoute object
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: example-udp-route
+spec:
+  parentRefs:
+    - name: example-gateway
+      port: 6001
+  rules:
+    - backendRefs:
+        - name: portfolio
+          port: 80
+# TODO: create another controller that can take a svc with a couple labels i.e. `gw-name: example-gateway`; `ports: portfolio, anotherport` and turn it into the correct route resources

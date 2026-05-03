@@ -1,7 +1,7 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
 use futures::{StreamExt, stream};
-use gateway_api::{
+use gateway_api::apis::experimental::{
     gatewayclasses::GatewayClass,
     gateways::Gateway,
     httproutes::{HTTPRoute, HttpRouteParentRefs},
@@ -31,7 +31,6 @@ async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared:
         .parent_refs
         .as_deref()
         .ok_or(shared::Error::MissingObjectKey("spec.parent_refs"))?;
-
     // TODO: handle unimplemented fields with status warnings
     let pangolin_configs: Vec<_> = stream::iter(gateway_refs)
         .filter_map(|gw_ref| async {

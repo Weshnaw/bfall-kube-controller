@@ -10,11 +10,8 @@ fn main() {
     let out_dir = env::var("OUT_DIR").expect("Failed to obtain 'OUT_DIR'");
     let dest_path = Path::new(&out_dir).join("crds.yaml");
 
-    fs::write(
-        &dest_path,
-        combine_yamls(&[PangolinConfig::crd(), RawRoute::crd()]),
-    )
-    .expect("Failed to write crd yaml");
+    fs::write(&dest_path, combine_yamls(&[PangolinConfig::crd()]))
+        .expect("Failed to write crd yaml");
 }
 
 fn combine_yamls<T: Serialize>(docs: &[T]) -> String {
