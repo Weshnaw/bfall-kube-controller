@@ -23,14 +23,16 @@ use crate::crd::PangolinConfig;
 
 #[tracing::instrument(level = "debug", skip(ctx, hr), fields(hr.name = hr.metadata.name, hr.namespace=hr.metadata.namespace))]
 async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
+    let client = &ctx.client;
     let start = Instant::now();
     counter!("hr_reconciled").increment(1);
     let gateway_refs = hr
         .spec
         .parent_refs
-        .as_ref()
+        .as_deref()
         .ok_or(shared::Error::MissingObjectKey("spec.parent_refs"))?;
 
+    // TODO: handle unimplemented fields with status warnings
     let pangolin_configs: Vec<_> = stream::iter(gateway_refs)
         .filter_map(|gw_ref| async {
             retrieve_pangolin_api_details(gw_ref, hr.as_ref(), ctx.as_ref()).await
@@ -43,26 +45,89 @@ async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared:
         return Ok(Action::requeue(Duration::from_secs(5)));
     }
 
-    // TODO: gather hostnames
-    // TODO: compare hostnames to gateway listener hostnames and to the pangolin org domains
+    let hostnames = hr
+        .spec
+        .hostnames
+        .as_deref()
+        .ok_or(shared::Error::MissingObjectKey("spec.hostnames"))?;
+
+    // TODO: add warning if there a hostname does not match any gateway ref
+    let _hostname_gateway: Vec<(&String, &PangolinApiConfig)> = hostnames
+        .iter()
+        .filter_map(|hostname| {
+            let config = pangolin_configs.iter().find(|cfg| {
+                cfg.listeners.iter().any(|listener| {
+                    if listener.wildcard {
+                        hostname.ends_with(&format!(".{}", listener.tld))
+                    } else {
+                        &listener.tld == hostname
+                    }
+                })
+            })?;
+
+            Some((hostname, config))
+        })
+        .collect();
+
+    let rules = hr
+        .spec
+        .rules
+        .as_deref()
+        .ok_or(shared::Error::MissingObjectKey("spec.rules"))?;
+
+    let _path_prefix = rules.iter().filter_map(|rule| {
+        // TODO: double check if there is some way to specify HTTP/HTTPS/H2C for the backend address
+        //       we currently are just assuming its http
+        let backends = rule.backend_refs.as_deref()?.iter().filter_map(|backend| {
+            let fqdn = format!(
+                "{}.{}.svc.cluster.local",
+                backend.name,
+                backend
+                    .namespace
+                    .as_deref()
+                    .unwrap_or(client.default_namespace())
+            );
+            // TODO: handle filter logic for things like path rewriting
+            let port = backend.port?;
+
+            Some((fqdn, port))
+        });
+        // TODO: transform this into (http/https), {name}.{namespace}, port
+        // TODO: map kubernetes fqdn
+
+        let matches = rule.matches.as_deref()?.iter().filter_map(|m| {
+            let path = m.path.as_ref()?;
+
+            let match_type = path.r#type.as_ref()?;
+            let match_path = path.value.as_ref()?;
+
+            Some((match_type, match_path))
+        });
+        // TODO: add warning if invalid matches are used
+        // I.E Pangolin currently only supporst path matches
+        // NOTE: for now we assume it strips the the path prefix,
+        //       but there is a filters section which has details for rewriting the path
+        // TODO: do research and add details for the filters section
+        //       additionally there is backend filters as well
+
+        Some((backends, matches))
+    });
+
     // TODO: check if there are any pangolin conflicts
-    // TODO: retrieve the rules
-    //         - path prefix == match path
-    // TODO: map everything to kubernetes fqdn
-    // TODO: send the updates to pangolin
 
     // Do API Updates
     if !ctx.is_leader() {
         debug!("Skipping reconciliation as not leader");
         return Ok(Action::requeue(Duration::from_secs(30)));
     }
+    // TODO: send the updates to pangolin
     histogram!("hr_reconcile_time").record(start.elapsed().as_secs_f32());
     Ok(Action::requeue(Duration::from_mins(5)))
 }
 
 // TODO: actually do error processing instead of just '?' all the options
 async fn retrieve_pangolin_api_details(
-    gw_ref: &HttpRouteParentRefs,
+    parent_ref: &HttpRouteParentRefs,
     hr: &HTTPRoute,
     data: &Data,
 ) -> Option<PangolinApiConfig> {
@@ -72,8 +137,8 @@ async fn retrieve_pangolin_api_details(
     let hr_name = hr.name_any();
     let hr_namespace = hr.metadata.namespace.as_deref();
 
-    let gw_name = &gw_ref.name;
-    let gw_namespace = gw_ref
+    let gw_name = &parent_ref.name;
+    let gw_namespace = parent_ref
         .namespace
         .as_deref()
         .or(hr_namespace)
@@ -161,6 +226,41 @@ async fn retrieve_pangolin_api_details(
         .ok()?
         .to_string();
 
+    let listeners = gw
+        .spec
+        .listeners
+        .iter()
+        .filter_map(|listener| {
+            // TODO: check if domain is valid for the gateway
+            if parent_ref
+                .section_name
+                .as_deref()
+                .is_some_and(|name| name != listener.name)
+            {
+                return None;
+            }
+
+            // TODO: pangolin doesn't really have port/protocol options afaik, should probably warn if unknown ones are being used
+            let port = listener.port;
+            // TODO: consider using TCP/UDP for things like the RawRoute
+            let protocol = match listener.protocol.to_ascii_lowercase().as_str() {
+                "http" => Protocol::Http,
+                _ => Protocol::Https, // TODO: should probably do proper invalid checks here
+            };
+
+            let hostname = listener.hostname.as_deref()?;
+
+            let (wildcard, tld) = parse_domain(hostname)?;
+
+            Some(Listener {
+                port,
+                protocol,
+                tld,
+                wildcard,
+            })
+        })
+        .collect();
+
     info!(
         "Obtained Pangolin API details from Gateway: {}:{}",
         gw_namespace, &gw_name
@@ -171,6 +271,7 @@ async fn retrieve_pangolin_api_details(
         visibility,
         site,
         api_key,
+        listeners,
     })
 }
 
@@ -182,6 +283,22 @@ struct PangolinApiConfig {
     org: String,
     visibility: Visibility,
     site: String,
+    listeners: Vec<Listener>,
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct Listener {
+    port: i32,
+    protocol: Protocol,
+    tld: String,
+    wildcard: bool,
+}
+
+#[derive(Debug)]
+enum Protocol {
+    Https,
+    Http, // Disables the SSL on pangolin for this address
 }
 
 #[derive(Debug)]
@@ -195,6 +312,7 @@ enum Visibility {
 fn error_policy(_svc: Arc<HTTPRoute>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
     counter!("hr_reconciled_error").increment(1);
+    // TODO: apply error status
     Action::requeue(Duration::from_secs(1))
 }
 
@@ -253,4 +371,52 @@ pub async fn controller(
             leader_status: None,
         })
         .await
+}
+
+pub fn parse_domain(input: &str) -> Option<(bool, String)> {
+    let (is_wildcard, host) = if let Some(rest) = input.strip_prefix("*.") {
+        (true, rest)
+    } else {
+        (false, input)
+    };
+
+    let labels: Vec<&str> = host.split('.').collect();
+
+    if labels.len() < 2 {
+        return None;
+    }
+
+    if labels.iter().any(|label| {
+        label.is_empty()
+            || label.len() > 63
+            || label.starts_with('-')
+            || label.ends_with('-')
+            || !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    }) {
+        return None;
+    }
+
+    Some((is_wildcard, host.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // TODO: parameterized tests
+    #[test]
+    fn test_parse_domain() {
+        assert_eq!(parse_domain("bfall.me"), Some((false, "bfall.me".into())));
+
+        assert_eq!(parse_domain("*.bfall.me"), Some((true, "bfall.me".into())));
+
+        assert_eq!(parse_domain("http://bfall.me"), None);
+
+        assert_eq!(
+            parse_domain("*.test.bfall.me"),
+            Some((true, "test.bfall.me".into()))
+        );
+
+        assert_eq!(parse_domain("test.*.bfall.me"), None);
+    }
 }

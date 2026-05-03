@@ -66,6 +66,7 @@ spec:
   hostnames:
     - gw-test.bfall.me
   rules:
+    # NOTE: this match is pangolin's default anyway
     - matches:
         - path:
             type: PathPrefix
@@ -88,3 +89,4 @@ spec:
         - name: portfolio
           port: 80
           protocol: tcp
+# TODO: create another controller that can take a svc with a couple labels i.e. `gw-name: example-gateway`; `ports: portfolio, anotherport` and turn it into a RawRoute object

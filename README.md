@@ -20,6 +20,8 @@ download gateway CRDs: https://gateway-api.sigs.k8s.io/guides/getting-started/#i
 README WIP
 
 # TODO:
+- Handle metrics somehow either via pushing to an metrics service, or implementing some way to pull metrics
+  - a pull example might require refactoring such that we patch the current pod with leadership status, and then using that tag in the selector
 - create a controller that will create a service for labeled deployments
 - maybe: create a controller that will create a PVC, would like to look into creating custom fields for an existing spec 
 - considering: creating macros for the reconciler and error policy traits
