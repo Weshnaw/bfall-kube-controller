@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["shared","tailscale-ingress-controller","pangolin-gateway-controller"]
+members = ["shared","tailscale-ingress-controller","pangolin-gateway-controller", "pangolin-newt-init"]
 
 [workspace.package]
 version = "0.2.0"

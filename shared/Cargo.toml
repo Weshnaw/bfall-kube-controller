@@ -13,3 +13,7 @@ metrics.workspace = true
 kube.workspace = true
 kube-leader-election.workspace = true
 uuid.workspace = true
+
+[features]
+default = ["controller"]
+controller = []
