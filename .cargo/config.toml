@@ -1,4 +1,8 @@
 [env]
-RUST_LOG = "info,tailscale_ingress_controller=debug,pangolin_gateway_controller=debug,shared=debug"
+RUST_LOG = "info,tailscale_ingress_controller=debug,pangolin_gateway_controller=debug,pangolin_newt_init=debug,shared=debug"
 # RUST_LOG = "warn,tailscale_ingress_controller=info"
 NAMESPACE = "bfall-me"
+PANGOLIN_ENDPOINT = "https://pangolin.bfall.me"
+PANGOLIN_API_ENDPOINT = "https://api.pangolin.bfall.me"
+PANGOLIN_ORG = "bfall-me"
+PANGOLIN_SITE_NAME = "test-site-01"

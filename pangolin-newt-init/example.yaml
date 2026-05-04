@@ -26,16 +26,20 @@ spec:
         - name: site-register
           image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:master
           env:
-            - name: PANGOLIN_API_KEY
-              value: TODO
             - name: PANGOLIN_ORG
               value: bfall-me
+            - name: PANGOLIN_API_ENDPOINT
+              value: https://api.pangolin.bfall.me
             - name: PANGOLIN_ENDPOINT
               value: https://pangolin.bfall.me
-            - name: PANGOLIN_SITE_NAME
+            - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           volumeMounts:
             - name: newt-config
               mountPath: /config
@@ -56,3 +60,12 @@ spec:
         resources:
           requests:
             storage: 1Mi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pangolin-init-secret
+  namespace: default
+type: Opaque
+stringData:
+  PANGOLIN_API_KEY: "your-secret-api-key-here"
