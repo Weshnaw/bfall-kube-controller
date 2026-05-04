@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-shared.workspace = true
+shared = { workspace = true, features = ["pangolin"]}
 derive_more.workspace = true
 tokio.workspace = true
 tracing.workspace = true

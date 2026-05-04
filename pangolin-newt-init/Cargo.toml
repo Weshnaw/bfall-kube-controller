@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-shared = { path = "../shared", default-features = false}
+shared = { path = "../shared", default-features = false, features = ["pangolin"]}
 tokio.workspace = true
 futures.workspace = true
 tracing.workspace = true
