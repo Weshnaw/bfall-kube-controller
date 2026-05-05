@@ -17,7 +17,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}/pangolin-gateway-controller
 
 jobs:
-  build:
+  pangolin-gateway-controller:
     runs-on: ubuntu-latest
     permissions:
       contents: read

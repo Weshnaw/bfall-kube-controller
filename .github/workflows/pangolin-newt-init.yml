@@ -17,7 +17,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}/pangolin-newt-init
 
 jobs:
-  build:
+  pangolin-newt-init:
     runs-on: ubuntu-latest
     permissions:
       contents: read
