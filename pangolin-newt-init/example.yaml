@@ -24,7 +24,7 @@ spec:
               app.kubernetes.io/name: newt-site
       initContainers:
         - name: site-register
-          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:sha-b470b71
+          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:sha-cb1d8ac
           env:
             - name: PANGOLIN_API_KEY
               valueFrom:
@@ -65,12 +65,12 @@ spec:
         resources:
           requests:
             storage: 1Mi
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: pangolin-init-secret
-  namespace: bfall-me
-type: Opaque
-stringData:
-  PANGOLIN_API_KEY: "changeme"
+# ---
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: pangolin-init-secret
+#   namespace: bfall-me
+# type: Opaque
+# stringData:
+#   PANGOLIN_API_KEY: "changeme"
