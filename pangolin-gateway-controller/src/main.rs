@@ -32,7 +32,7 @@ async fn main() -> Result<(), shared::Error> {
         gc_store.clone(),
         lease_details.clone(),
     );
-
+    // TODO: handle site-selector which attempts to grab labels from pods, how to handle if pods are created/removed
     tokio::try_join!(
         gc_controller,
         gw_controller,

@@ -40,7 +40,6 @@ async fn main() -> Result<(), shared::Error> {
         }
     }
 
-    // TODO: could probably add an env config for config path
     let config_path = std::env::var("CONFIG_PATH").unwrap_or("/config/config.json".to_string());
     let config_path = Path::new(&config_path);
     let force: bool = std::env::var("FORCE")

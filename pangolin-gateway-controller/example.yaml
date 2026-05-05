@@ -43,6 +43,9 @@ spec:
       # TODO: I wonder if you could obtain the site programatically, maybe by specifiying the pangolin newt node name/namespace
       bfall.me/pangolin-site-selector: "newt-site"
       bfall.me/pangolin-site-selector-ns: "bfall-me"
+      # if the resource is public it creates a target for each site
+      # TODO: how to handle if I wanted different priorities for each site, especially if it's using the site-selector
+      #
       # if you aren't using the pangolin-newt-init you can just manually defind a comma seperated list of site ids:
       # bfall.me/pangolin-site: "unripe-scytodes-thoracica"
       # TODO: just create a custom CRD for the complex configs; might be able to use HttpRouteRulesBackendRefsFiltersExtensionRef to specify auth rules on a per route level as well
