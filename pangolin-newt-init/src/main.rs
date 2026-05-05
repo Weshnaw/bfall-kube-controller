@@ -23,6 +23,7 @@ struct NewtConfig {
     secret: String,
     endpoint: String,
     tls_client_cert: String,
+    site_id: String,
 }
 
 #[tokio::main]
@@ -49,8 +50,7 @@ async fn main() -> Result<(), shared::Error> {
     let allow_delete: bool = std::env::var("ALLOW_DELETE")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or_default()
-        || force;
+        .unwrap_or_default();
     if !force && config_path.exists() {
         info!("Config file exists; checking if it is populated...");
 
@@ -61,10 +61,8 @@ async fn main() -> Result<(), shared::Error> {
             && !config.secret.is_empty()
             && !config.endpoint.is_empty()
         {
-            info!(
-                config = ?config,
-                "Config file already has data, use FORCE=true, to overwrite it"
-            );
+            update_pod_annotation(&config.site_id).await?;
+            info!("Config file already has data, use FORCE=true, to overwrite it");
             return Ok(());
         }
     }
@@ -109,14 +107,38 @@ async fn main() -> Result<(), shared::Error> {
         pangolin.create_site(&pangolin_site, None).await?
     };
 
+    update_pod_annotation(site.nice_id()).await?;
+
+    let config = NewtConfig {
+        id: site
+            .newt_id()
+            .as_ref()
+            .ok_or(shared::Error::NewtIdNotGenerated)?
+            .clone(),
+        secret: site
+            .secret()
+            .as_ref()
+            .ok_or(shared::Error::NewtSecretNotGenerated)?
+            .clone(),
+        endpoint: pangolin_endpoint,
+        tls_client_cert: "".to_string(),
+        site_id: site.nice_id().clone(),
+    };
+
+    let json = serde_json::to_string_pretty(&config)?;
+    fs::write(config_path, json)?;
+
+    Ok(())
+}
+
+async fn update_pod_annotation(id: &String) -> Result<(), shared::Error> {
     if let Ok(pod_name) = std::env::var("POD_NAME") {
         let client = Client::try_default().await?;
         let default_ns = client.default_namespace().to_string();
         let pod_namespace = std::env::var("POD_NAMESPACE").unwrap_or(default_ns);
 
         let pod_api: Api<Pod> = Api::namespaced(client, &pod_namespace);
-        let annotations =
-            BTreeMap::from([("bfall.me/pangolin-site-id".to_string(), site.nice_id())]);
+        let annotations = BTreeMap::from([("bfall.me/pangolin-site-id".to_string(), id)]);
 
         let patch = json!({
             "metadata": {
@@ -134,24 +156,6 @@ async fn main() -> Result<(), shared::Error> {
     } else {
         warn!("Unable to get 'POD_NAME', will not update pod annotation")
     }
-
-    let config = NewtConfig {
-        id: site
-            .newt_id()
-            .as_ref()
-            .ok_or(shared::Error::NewtIdNotGenerated)?
-            .clone(),
-        secret: site
-            .secret()
-            .as_ref()
-            .ok_or(shared::Error::NewtSecretNotGenerated)?
-            .clone(),
-        endpoint: pangolin_endpoint,
-        tls_client_cert: "".to_string(),
-    };
-
-    let json = serde_json::to_string_pretty(&config)?;
-    fs::write(config_path, json)?;
 
     Ok(())
 }

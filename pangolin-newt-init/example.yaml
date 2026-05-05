@@ -24,7 +24,7 @@ spec:
               app.kubernetes.io/name: newt-site
       initContainers:
         - name: site-register
-          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:sha-ad948fa
+          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:sha-b470b71
           env:
             - name: PANGOLIN_API_KEY
               valueFrom:
@@ -50,7 +50,7 @@ spec:
               mountPath: /config
       containers:
         - name: newt
-          image: docker.io/fosrl/newt:1.11.0
+          image: docker.io/fosrl/newt:1.12.3
           env:
             - name: CONFIG_FILE
               value: /config/config.json
