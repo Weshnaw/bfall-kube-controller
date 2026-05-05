@@ -4,7 +4,7 @@ metadata:
   name: homelab-kubernetes
   namespace: bfall-me
 spec:
-  replicas: 3
+  replicas: 1
   podManagementPolicy: Parallel
   selector:
     matchLabels:
@@ -24,8 +24,13 @@ spec:
               app.kubernetes.io/name: newt-site
       initContainers:
         - name: site-register
-          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:master
+          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:sha-ad948fa
           env:
+            - name: PANGOLIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pangolin-init-secret
+                  key: PANGOLIN_API_KEY
             - name: PANGOLIN_ORG
               value: bfall-me
             - name: PANGOLIN_API_ENDPOINT
@@ -65,7 +70,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: pangolin-init-secret
-  namespace: default
+  namespace: bfall-me
 type: Opaque
 stringData:
-  PANGOLIN_API_KEY: "your-secret-api-key-here"
+  PANGOLIN_API_KEY: "changeme"

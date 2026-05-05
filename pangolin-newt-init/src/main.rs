@@ -112,7 +112,7 @@ async fn main() -> Result<(), shared::Error> {
     if let Ok(pod_name) = std::env::var("POD_NAME") {
         let client = Client::try_default().await?;
         let default_ns = client.default_namespace().to_string();
-        let pod_namespace = std::env::var("POD_NAME").unwrap_or(default_ns);
+        let pod_namespace = std::env::var("POD_NAMESPACE").unwrap_or(default_ns);
 
         let pod_api: Api<Pod> = Api::namespaced(client, &pod_namespace);
         let annotations =
