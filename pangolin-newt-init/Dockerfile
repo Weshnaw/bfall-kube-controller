@@ -9,6 +9,7 @@ ENV APP_GROUP=appgroup \
 WORKDIR /build
 COPY Cargo.toml .
 COPY Cargo.lock ./
+RUN sed -i 's|members = \[.*\]|members = ["shared", "pangolin-newt-init"]|' Cargo.toml
 COPY pangolin-newt-init/Cargo.toml ./pangolin-newt-init/
 COPY pangolin-newt-init/build.rs ./pangolin-newt-init/
 COPY shared/Cargo.toml ./shared/

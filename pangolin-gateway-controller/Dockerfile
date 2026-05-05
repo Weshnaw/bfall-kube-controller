@@ -9,6 +9,7 @@ ENV APP_GROUP=appgroup \
 WORKDIR /build
 COPY Cargo.toml .
 COPY Cargo.lock ./
+RUN sed -i 's|members = \[.*\]|members = ["shared", "pangolin-gateway-controller"]|' Cargo.toml
 COPY pangolin-gateway-controller/Cargo.toml ./pangolin-gateway-controller/
 COPY pangolin-gateway-controller/build.rs ./pangolin-gateway-controller/
 COPY shared/Cargo.toml ./shared/
