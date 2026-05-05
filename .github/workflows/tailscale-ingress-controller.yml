@@ -1,4 +1,4 @@
-name: Build and Deploy controllers
+name: Build and Deploy tailscale-ingress-controller
 
 on:
   push:

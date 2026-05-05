@@ -1,4 +1,4 @@
-name: Build and Deploy controllers
+name: Build and Deploy pangolin-newt-init
 
 on:
   push:
