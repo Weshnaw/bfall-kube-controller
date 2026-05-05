@@ -1,17 +1,22 @@
 use std::{
+    collections::BTreeMap,
     fs::{self, File},
     io::BufReader,
     path::Path,
 };
 
-use kube::Client;
+use k8s_openapi::api::core::v1::Pod;
+use kube::{
+    Api, Client,
+    api::{Patch, PatchParams},
+};
 use pangolin_newt_init::pangolin::PangolinClient;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info};
+use serde_json::json;
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
 #[serde(rename_all = "camelCase")]
 struct NewtConfig {
     id: String,
@@ -35,12 +40,17 @@ async fn main() -> Result<(), shared::Error> {
     }
 
     // TODO: could probably add an env config for config path
-    let config_path = Path::new("/config/config.json");
+    let config_path = std::env::var("CONFIG_PATH").unwrap_or("/config/config.json".to_string());
+    let config_path = Path::new(&config_path);
     let force: bool = std::env::var("FORCE")
         .ok()
-        .map(|value| value.parse().ok())
-        .flatten()
+        .and_then(|value| value.parse().ok())
         .unwrap_or_default();
+    let allow_delete: bool = std::env::var("ALLOW_DELETE")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_default()
+        || force;
     if !force && config_path.exists() {
         info!("Config file exists; checking if it is populated...");
 
@@ -75,39 +85,73 @@ async fn main() -> Result<(), shared::Error> {
 
     let found = pangolin.find_site_by_name(&pangolin_site).await?;
 
-    let (site_id, credentials) = if let Some(found) = found {
+    let site = if let Some(found) = found {
         info!(site=?found, "Site exists...");
-        if found.online {
-            // TODO: if it does exist and is already online; append 01,02,03... (this could be an optional flag to fail fast or append the 01)
+        // TODO: multiple sites can exist with the same name
+        if found.online() {
+            // TODO: create the site anyway
             error!(site=?found, "Site is currently online already...");
             return Err(shared::Error::SiteAlreadyExists);
         }
 
-        info!(site=?found, "Taking over the pre-existing site...");
-        let credentials = pangolin.create_newt_credentials().await?;
-        // TODO: update existing site with new credentials
-        todo!();
+        if allow_delete {
+            info!(site=?found, "Taking over the pre-existing site...");
+            pangolin.delete_site(found.id()).await?;
 
-        (found.nice_id, credentials)
+            pangolin
+                .create_site(&pangolin_site, Option::Some(found.nice_id().clone()))
+                .await?
+        } else {
+            error!(site=?found, "Site exists already, and delete is not explicitly allowed...");
+            return Err(shared::Error::SiteAlreadyExists);
+        }
     } else {
-        let credentials = pangolin.create_newt_credentials().await?;
-        // TODO: if it does not exist create it
-        todo!();
-        ("".into(), credentials)
+        pangolin.create_site(&pangolin_site, None).await?
     };
 
-    let _client = Client::try_default().await?;
-    // TODO: update the pod's annotation
+    if let Ok(pod_name) = std::env::var("POD_NAME") {
+        let client = Client::try_default().await?;
+        let default_ns = client.default_namespace().to_string();
+        let pod_namespace = std::env::var("POD_NAME").unwrap_or(default_ns);
+
+        let pod_api: Api<Pod> = Api::namespaced(client, &pod_namespace);
+        let annotations =
+            BTreeMap::from([("bfall.me/pangolin-site-id".to_string(), site.nice_id())]);
+
+        let patch = json!({
+            "metadata": {
+                "annotations": annotations
+            }
+        });
+
+        pod_api
+            .patch(
+                &pod_name,
+                &PatchParams::apply("pangolin-newt-init"),
+                &Patch::Merge(&patch),
+            )
+            .await?;
+    } else {
+        warn!("Unable to get 'POD_NAME', will not update pod annotation")
+    }
 
     let config = NewtConfig {
-        id: credentials.newt_id().clone(),
-        secret: credentials.newt_secret().clone(),
+        id: site
+            .newt_id()
+            .as_ref()
+            .ok_or(shared::Error::NewtIdNotGenerated)?
+            .clone(),
+        secret: site
+            .secret()
+            .as_ref()
+            .ok_or(shared::Error::NewtSecretNotGenerated)?
+            .clone(),
         endpoint: pangolin_endpoint,
         tls_client_cert: "".to_string(),
     };
 
     let json = serde_json::to_string_pretty(&config)?;
-    fs::write(&config_path, json)?;
+    fs::write(config_path, json)?;
 
     Ok(())
 }

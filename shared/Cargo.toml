@@ -15,7 +15,7 @@ kube.workspace = true
 kube-leader-election.workspace = true
 uuid.workspace = true
 reqwest.workspace = true
-
+# TODO: dependency features
 [features]
 default = ["controller"]
 controller = []

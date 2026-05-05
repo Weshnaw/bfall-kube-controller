@@ -1,14 +1,36 @@
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Site {
-    pub site_id: u32,
-    pub name: String,
-    pub nice_id: String,
-    pub status: Status,
-    pub online: bool,
+    site_id: u32,
+    name: String,
+    nice_id: String,
+    // status: Status,
+    online: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    newt_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secret: Option<String>,
+}
+
+impl Site {
+    pub fn id(&self) -> u32 {
+        self.site_id
+    }
+    pub fn nice_id(&self) -> &String {
+        &self.nice_id
+    }
+    pub fn online(&self) -> bool {
+        self.online
+    }
+    pub fn newt_id(&self) -> &Option<String> {
+        &self.newt_id
+    }
+    pub fn secret(&self) -> &Option<String> {
+        &self.secret
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -31,28 +53,14 @@ struct SitesData {
     pagination: Pagination,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewtDetails {
-    exit_node_id: u32,
-    address: String,
-    public_key: String,
+struct CreateSiteRequest {
     name: String,
-    listen_port: u32,
-    endpoint: String,
-    subnet: String,
-    client_address: String,
-    newt_id: String,
-    newt_secret: String,
-}
-
-impl NewtDetails {
-    pub fn newt_id(&self) -> &String {
-        &self.newt_id
-    }
-    pub fn newt_secret(&self) -> &String {
-        &self.newt_secret
-    }
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nice_id: Option<String>,
+    #[serde(rename = "type")]
+    site_type: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -115,17 +123,35 @@ impl PangolinClient {
         Ok(None)
     }
 
-    pub async fn create_newt_credentials(&self) -> Result<NewtDetails, shared::Error> {
-        let response = self
-            .client
-            .get(format!(
-                "{}/v1/org/{}/pick-site-defaults",
-                self.base_url, self.org
-            ))
+    pub async fn delete_site(&self, site_id: u32) -> Result<(), reqwest::Error> {
+        self.client
+            .delete(format!("{}/v1/site/{}", self.base_url, site_id))
             .header("Authorization", format!("Bearer {}", self.token))
             .send()
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn create_site(
+        &self,
+        name: impl Into<String>,
+        nice_id: Option<String>,
+    ) -> Result<Site, shared::Error> {
+        let body = CreateSiteRequest {
+            name: name.into(),
+            site_type: "newt".into(),
+            nice_id,
+        };
+
+        let response = self
+            .client
+            .put(format!("{}/v1/org/{}/site", self.base_url, self.org))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .json(&body)
+            .send()
             .await?
-            .json::<ApiResponse<NewtDetails>>()
+            .json::<ApiResponse<Site>>()
             .await?;
 
         Ok(response.data)

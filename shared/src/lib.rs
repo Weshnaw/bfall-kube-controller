@@ -15,6 +15,8 @@ pub enum Error {
     EnvError(VarError),
     ReqwestError(reqwest::Error),
     SiteAlreadyExists,
+    NewtIdNotGenerated,
+    NewtSecretNotGenerated,
     #[from(skip)]
     MissingObjectKey(#[error(not(source))] &'static str),
     #[from(skip)]
