@@ -17,8 +17,14 @@ pub enum Error {
     SiteAlreadyExists,
     NewtIdNotGenerated,
     NewtSecretNotGenerated,
+    FetchError(FetchError),
     #[from(skip)]
     MissingObjectKey(#[error(not(source))] &'static str),
     #[from(skip)]
     CouldNotCreateResource(#[error(not(source))] &'static str),
+}
+
+#[derive(Debug, Display, Error, From)]
+pub enum FetchError {
+    NoValidConfigs,
 }

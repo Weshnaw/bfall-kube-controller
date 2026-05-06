@@ -47,7 +47,7 @@ spec:
       # TODO: how to handle if I wanted different priorities for each site, especially if it's using the site-selector
       #
       # if you aren't using the pangolin-newt-init you can just manually defind a comma seperated list of site ids:
-      # bfall.me/pangolin-site: "unripe-scytodes-thoracica"
+      bfall.me/pangolin-site: "unripe-scytodes-thoracica"
       # TODO: just create a custom CRD for the complex configs; might be able to use HttpRouteRulesBackendRefsFiltersExtensionRef to specify auth rules on a per route level as well
       #       research the filters specifications to see if some of these are already implented and use the FiltersExtensionRef for the rest
       # - Access Control

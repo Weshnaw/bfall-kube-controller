@@ -25,8 +25,10 @@ A utility init script that will register the current pod to a pangolin server, a
 ### TODOs:
 - Refactor `pangolin.rs` into the shared lib
 - Better handling of if there is an existing site
-- migrate over to use provisioning: https://website.fossorial.io/news/templated-provisioning-and-rollouts-for-the-edge
-  - how to handle the nice_id label? maybe a seperate controller that does a site lookup for any pods with a selector label
+- migrate over to use provisioning: [news](https://website.fossorial.io/news/templated-provisioning-and-rollouts-for-the-edge), [doc](https://docs.pangolin.net/manage/sites/site-provisioning)
+  - how to handle the nice_id label? 
+    - maybe a seperate controller that does a site lookup for any pods with a selector label
+    - alternatively I could create a sidecar webhook, and a sidecar container which is constantly watching the config file and updating the the labels or a config map
   - for the actual provisioning file we could simplify the init container to a script that copies the provisioning file secret if one does not already exist in the pvc, and have a generic provisioning file as a secret
 
 # Global TODOs:
@@ -36,3 +38,4 @@ A utility init script that will register the current pod to a pangolin server, a
 - maybe: create a controller that will create a PVC, would like to look into creating custom fields for an existing spec 
 - considering: creating macros for the reconciler and error policy traits
 - considering: do I even need the reconciler to check leadership status?
+- refactor shared error so that it's not providing unused enums to bins
