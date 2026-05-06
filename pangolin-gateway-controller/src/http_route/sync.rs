@@ -1,7 +1,11 @@
-use crate::http_route::fetch::RetrievedData;
+use crate::http_route::intermediate::RetrievedData;
 
-pub fn update_pangolin_api(_data: &RetrievedData) -> Result<(), shared::Error> {
-    todo!()
+pub fn update_pangolin_api(data: &RetrievedData) -> Result<(), shared::Error> {
+    for (hostname, rule) in data.rules_iter() {
+        hostname.apply_rule(&rule)?;
+    }
+
+    Ok(())
 }
 
 pub fn update_kube_statuses() -> Result<(), shared::Error> {

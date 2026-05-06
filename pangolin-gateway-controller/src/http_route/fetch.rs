@@ -1,12 +1,10 @@
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
 use futures::{StreamExt, stream};
 use gateway_api::apis::experimental::{
     gatewayclasses::GatewayClass,
     gateways::Gateway,
-    httproutes::{HTTPRoute, HttpRouteParentRefs, HttpRouteRulesMatchesPathType},
+    httproutes::{HTTPRoute, HttpRouteParentRefs},
 };
 use k8s_openapi::api::core::v1::{Pod, Secret};
 use kube::{Api, ResourceExt, api::ListParams, runtime::reflector::ObjectRef};
@@ -15,25 +13,12 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     crd::PangolinConfig,
-    http_route::Data,
+    http_route::{
+        Data,
+        intermediate::{Backend, HostUpdate, Match, RetrievedData, Rule},
+    },
     pangolin::{Listener, PangolinApiConfig, Protocol, Visibility},
 };
-
-pub struct RetrievedData {
-    hostnames: Vec<(String, PangolinApiConfig)>,
-    rules: Vec<(
-        Vec<(String, i32)>,
-        Vec<(HttpRouteRulesMatchesPathType, String)>,
-    )>,
-}
-
-impl RetrievedData {
-    pub fn iter(&self) -> impl Iterator {
-        self.hostnames
-            .iter()
-            .flat_map(|hostname| self.rules.iter().map(move |rule| (hostname, rule)))
-    }
-}
 
 pub async fn fetch_kubernetes_data(
     hr: Arc<HTTPRoute>,
@@ -65,7 +50,7 @@ pub async fn fetch_kubernetes_data(
         .ok_or(shared::Error::MissingObjectKey("spec.hostnames"))?;
 
     // TODO: add warning if there a hostname does not match any gateway ref
-    let hostnames: Vec<(_, _)> = hostnames
+    let hostnames = hostnames
         .iter()
         .filter_map(|hostname| {
             let config = pangolin_configs.iter().find(|cfg| {
@@ -76,9 +61,9 @@ pub async fn fetch_kubernetes_data(
 
             debug!(?config);
 
-            Some((hostname.clone(), config.clone()))
+            Some(HostUpdate::new(hostname.clone(), config.clone()))
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     let rules = hr
         .spec
@@ -107,7 +92,7 @@ pub async fn fetch_kubernetes_data(
                     // TODO: handle filter logic for things like path rewriting
                     let port = backend.port?;
 
-                    Some((fqdn, port))
+                    Some(Backend::new(fqdn, port))
                 })
                 .collect::<Vec<_>>();
 
@@ -121,7 +106,7 @@ pub async fn fetch_kubernetes_data(
                     let match_type = path.r#type.as_ref()?;
                     let match_path = path.value.as_ref()?;
 
-                    Some((match_type.clone(), match_path.clone()))
+                    Some(Match::new(match_type.clone(), match_path.clone()))
                 })
                 .collect::<Vec<_>>();
             // TODO: add warning if invalid matches are used
@@ -131,11 +116,11 @@ pub async fn fetch_kubernetes_data(
             // TODO: do research and add details for the filters section
             //       additionally there is backend filters as well
 
-            Some((backends, matches))
+            Some(Rule::new(backends, matches))
         })
         .collect::<Vec<_>>();
 
-    Ok(RetrievedData { hostnames, rules })
+    Ok(RetrievedData::new(hostnames, rules))
 }
 
 // TODO: actually do error processing instead of just '?' all the options
