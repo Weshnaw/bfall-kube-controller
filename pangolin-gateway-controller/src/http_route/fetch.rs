@@ -2,19 +2,17 @@ use std::sync::Arc;
 
 use futures::{StreamExt, stream};
 use gateway_api::apis::experimental::{
-    gatewayclasses::GatewayClass,
     gateways::Gateway,
     httproutes::{HTTPRoute, HttpRouteParentRefs},
 };
-use k8s_openapi::api::core::v1::Pod;
-use kube::{Api, ResourceExt, api::ListParams, runtime::reflector::ObjectRef};
+use kube::{ResourceExt, runtime::reflector::ObjectRef};
 use shared::FetchError;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
     http_route::Data,
     intermediate::{Backend, HostUpdate, Match, RetrievedData, Rule},
-    pangolin::{Listener, PangolinApiConfig, PangolinResourceConfig, Protocol, Visibility},
+    pangolin::PangolinResourceConfig,
 };
 
 pub async fn fetch_kubernetes_data(
@@ -30,7 +28,20 @@ pub async fn fetch_kubernetes_data(
     // TODO: handle unimplemented fields with status warnings
     let pangolin_configs: Vec<_> = stream::iter(gateway_refs)
         .filter_map(|gw_ref| async {
-            retrieve_pangolin_api_details(gw_ref, hr.as_ref(), ctx.as_ref()).await
+            retrieve_pangolin_api_details(gw_ref, hr.as_ref(), ctx.as_ref())
+                .await
+                .and_then(|config| {
+                    if config.listeners().iter().any(|listener| {
+                        gw_ref
+                            .section_name
+                            .as_deref()
+                            .is_some_and(|name| name != listener.name())
+                    }) {
+                        Some(config)
+                    } else {
+                        None
+                    }
+                })
         })
         .collect()
         .await;
@@ -150,24 +161,7 @@ async fn retrieve_pangolin_api_details(
         );
         return None;
     };
-
-    let gc_store = &data.gc_store;
-    let gc_name = &gw.spec.gateway_class_name;
-
-    let gc_ref = ObjectRef::<GatewayClass>::new(gc_name);
-
-    debug!("Retrieving gateway class details: {}", gc_name);
-    let Some(gc) = gc_store.get(&gc_ref) else {
-        warn!(
-            http_route = &hr_name,
-            gateway = &gw_name,
-            gateway_class = &gc_name,
-            "GatewayClass not in cache yet, requeueing"
-        );
-        return None;
-    };
-
-    let gc_accepted = gc
+    let gw_accepted = gw
         .status
         .as_ref()
         .and_then(|s| s.conditions.as_ref())
@@ -175,147 +169,11 @@ async fn retrieve_pangolin_api_details(
         .map(|c| c.status == "True")
         .unwrap_or(false);
 
-    if !gc_accepted {
-        warn!(
-            gateway_class = &gc_name,
-            "GatewayClass is not accepted, requeueing"
-        );
+    if !gw_accepted {
+        warn!(gateway = &gw_name, "Gateway is not accepted, requeueing");
         return None;
     }
-
-    let api_config = PangolinApiConfig::from_gatewayclass(client, &gc)
+    PangolinResourceConfig::from_gateway(client, &gw, &data.gc_store)
         .await
-        .ok()?;
-
-    let infra_labels = gw.spec.infrastructure.as_ref()?.labels.as_ref()?;
-    let org = infra_labels.get("bfall.me/pangolin-org").cloned()?;
-    let visibility = infra_labels
-        .get("bfall.me/pangolin-visibility")
-        .and_then(Visibility::from_str)?;
-    let sites = infra_labels
-        .get("bfall.me/pangolin-site")
-        .map(|str| {
-            str.split(",")
-                .map(|str| str.to_string())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    let annotated_sites =
-        if let Some(selector) = infra_labels.get("bfall.me/pangolin-site-selector") {
-            let selector = selector.clone();
-            let selector_ns = infra_labels
-                .get("bfall.me/pangolin-site-selector-ns")
-                .cloned()
-                .unwrap_or(gw_namespace.to_string());
-
-            let pods: Api<Pod> = Api::namespaced(client.clone(), &selector_ns);
-            let selector =
-                ListParams::default().labels(&format!("app.kubernetes.io/name={}", &selector));
-            let found = pods.list(&selector).await.ok();
-
-            found.map(|pods| {
-                pods.iter()
-                    .filter_map(|pod| {
-                        pod.metadata
-                            .annotations
-                            .as_ref()
-                            .and_then(|ann| ann.get("bfall.me/pangolin-site-id").cloned())
-                    })
-                    .collect::<Vec<_>>()
-            })
-        } else {
-            None
-        }
-        .unwrap_or_default();
-
-    let sites = [&sites[..], &annotated_sites[..]].concat();
-
-    if sites.is_empty() {
-        error!("No sites found for the gateway...");
-        return None;
-    }
-
-    let listeners = gw
-        .spec
-        .listeners
-        .iter()
-        .filter_map(|listener| {
-            // TODO: check if domain is valid for the gateway
-            if parent_ref
-                .section_name
-                .as_deref()
-                .is_some_and(|name| name != listener.name)
-            {
-                return None;
-            }
-
-            // TODO: pangolin doesn't really have port/protocol options afaik, should probably warn if unknown ones are being used
-            let port = listener.port;
-            // TODO: consider using TCP/UDP for things like the RawRoute
-            let protocol = Protocol::from_str(&listener.protocol);
-
-            let hostname = listener.hostname.as_deref()?;
-
-            let (wildcard, tld) = parse_domain(hostname)?;
-
-            Some(Listener::new(port, protocol, tld, wildcard))
-        })
-        .collect();
-
-    info!(
-        "Obtained Pangolin API details from Gateway: {}:{}",
-        gw_namespace, &gw_name
-    );
-    Some(PangolinResourceConfig::new(
-        api_config, org, visibility, sites, listeners,
-    ))
-}
-
-fn parse_domain(input: &str) -> Option<(bool, String)> {
-    let (is_wildcard, host) = if let Some(rest) = input.strip_prefix("*.") {
-        (true, rest)
-    } else {
-        (false, input)
-    };
-
-    let labels: Vec<&str> = host.split('.').collect();
-
-    if labels.len() < 2 {
-        return None;
-    }
-
-    if labels.iter().any(|label| {
-        label.is_empty()
-            || label.len() > 63
-            || label.starts_with('-')
-            || label.ends_with('-')
-            || !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-    }) {
-        return None;
-    }
-
-    Some((is_wildcard, host.to_string()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // TODO: parameterized tests
-    #[test]
-    fn test_parse_domain() {
-        assert_eq!(parse_domain("bfall.me"), Some((false, "bfall.me".into())));
-
-        assert_eq!(parse_domain("*.bfall.me"), Some((true, "bfall.me".into())));
-
-        assert_eq!(parse_domain("http://bfall.me"), None);
-
-        assert_eq!(
-            parse_domain("*.test.bfall.me"),
-            Some((true, "test.bfall.me".into()))
-        );
-
-        assert_eq!(parse_domain("test.*.bfall.me"), None);
-    }
+        .ok()
 }

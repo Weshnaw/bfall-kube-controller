@@ -1,5 +1,6 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
+use futures::TryFutureExt;
 use gateway_api::apis::experimental::{
     constants::{GatewayConditionReason, GatewayConditionType},
     gatewayclasses::GatewayClass,
@@ -23,7 +24,7 @@ use shared::controller::{BFallController, CheckLeadershipStatus};
 use tokio::{sync::watch, time::Instant};
 use tracing::{debug, info, warn};
 
-use crate::CONTROLLER_NAME;
+use crate::{CONTROLLER_NAME, pangolin::PangolinResourceConfig};
 
 #[tracing::instrument(level = "debug", skip(ctx, gw), fields(gw.name = gw.metadata.name, gw.namespace=gw.metadata.namespace))]
 async fn reconcile(gw: Arc<Gateway>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
@@ -52,54 +53,94 @@ async fn reconcile(gw: Arc<Gateway>, ctx: Arc<Data>) -> Result<Action, shared::E
     counter!("gw_reconciled").increment(1);
     info!(name, "Reconciling GatewayClass");
 
+    let client = &ctx.client;
+
     let now = Time(Timestamp::now());
     let generation = gw.metadata.generation;
-    // TODO: move this check on the gateway level instead of per route, and then we only check if the gateway is valid
-    // for hostname in data.hosts_iter() {
-    //     hostname.pangolin_server().check_resource().await?;
-    // }
-    let accepted = Condition {
-        last_transition_time: now.clone(),
-        message: "Gateway accepted by gateway-controller".into(),
-        observed_generation: generation,
-        reason: GatewayConditionReason::Accepted.to_string(),
-        status: "True".into(),
-        type_: GatewayConditionType::Accepted.to_string(),
-    };
+    let config = PangolinResourceConfig::from_gateway(client, &gw, &ctx.gc_store)
+        .and_then(|config| config.check_resource())
+        .await;
 
-    let programmed = Condition {
-        last_transition_time: now,
-        message: "Gateway is programmed".into(),
-        observed_generation: generation,
-        reason: GatewayConditionReason::Accepted.to_string(),
-        status: "True".into(),
-        type_: GatewayConditionType::Programmed.to_string(),
-    };
-
-    // TODO: check API details, and mark gateway with status if not valid
-    // TODO: do more reasearch on what/if I should have an addresses field
     // TODO: actually use a non-static looked up value
-    // TODO: graceful shutdown update the conditions to false
-    let status_patch = json!({
-        "status": {
-            "conditions": [accepted, programmed],
-            "addresses": [
-                {
-                    "type": "Hostname",
-                    "value": "pangolin.bfall.me"
+    let pangolin_host = "pangolin.bfall.me";
+    match config {
+        Ok(_) => {
+            let accepted = Condition {
+                last_transition_time: now.clone(),
+                message: "Gateway accepted by gateway-controller".into(),
+                observed_generation: generation,
+                reason: GatewayConditionReason::Accepted.to_string(),
+                status: "True".into(),
+                type_: GatewayConditionType::Accepted.to_string(),
+            };
+
+            let programmed = Condition {
+                last_transition_time: now,
+                message: "Gateway is programmed".into(),
+                observed_generation: generation,
+                reason: GatewayConditionReason::Accepted.to_string(),
+                status: "True".into(),
+                type_: GatewayConditionType::Programmed.to_string(),
+            };
+
+            // TODO: do more reasearch on what/if I should have an addresses field
+            // TODO: graceful shutdown update the conditions to false
+            let status_patch = json!({
+                "status": {
+                    "conditions": [accepted, programmed],
+                    "addresses": [
+                        {
+                            "type": "Hostname",
+                            "value": pangolin_host
+                        }
+                    ]
                 }
-            ]
+            });
+            let gw_api: Api<Gateway> = Api::namespaced(ctx.client.clone(), &namespace);
+            if !ctx.is_leader() {
+                debug!("Skipping reconciliation as not leader");
+                return Ok(Action::requeue(Duration::from_secs(30)));
+            }
+            gw_api
+                .patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
+                .await?;
+            info!(name, "Gateway marked Accepted");
         }
-    });
-    let gw_api: Api<Gateway> = Api::namespaced(ctx.client.clone(), &namespace);
-    if !ctx.is_leader() {
-        debug!("Skipping reconciliation as not leader");
-        return Ok(Action::requeue(Duration::from_secs(30)));
+        Err(e) => {
+            let accepted = Condition {
+                last_transition_time: now.clone(),
+                message: e.condition_message(),
+                observed_generation: generation,
+                reason: GatewayConditionReason::Invalid.to_string(),
+                status: "False".into(),
+                type_: GatewayConditionType::Accepted.to_string(),
+            };
+
+            // TODO: actually use a non-static looked up value
+            let status_patch = json!({
+                "status": {
+                    "conditions": [accepted],
+                    "addresses": [
+                        {
+                            "type": "Hostname",
+                            "value": pangolin_host
+                        }
+                    ]
+                }
+            });
+            let gw_api: Api<Gateway> = Api::namespaced(ctx.client.clone(), &namespace);
+            if !ctx.is_leader() {
+                debug!("Skipping reconciliation as not leader");
+                return Ok(Action::requeue(Duration::from_secs(30)));
+            }
+            gw_api
+                .patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
+                .await?;
+
+            // TODO: conider if I actually should be returning the error here?
+            return Err(e);
+        }
     }
-    gw_api
-        .patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
-        .await?;
-    info!(name, "Gateway marked Accepted");
     histogram!("gw_reconcile_time").record(start.elapsed().as_secs_f32());
     Ok(Action::requeue(Duration::from_mins(5)))
 }

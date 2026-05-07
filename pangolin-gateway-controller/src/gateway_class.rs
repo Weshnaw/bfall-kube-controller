@@ -94,6 +94,9 @@ async fn reconcile(gc: Arc<GatewayClass>, ctx: Arc<Data>) -> Result<Action, shar
                     .await
                     .ok();
             }
+
+            // TODO: conider if I actually should be returning the error here?
+            return Err(e);
         }
     }
 
