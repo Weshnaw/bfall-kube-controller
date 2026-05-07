@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+use futures::{StreamExt, stream};
+use shared::pangolin::PangolinClient;
+
 #[derive(Debug, Clone)]
 pub struct PangolinApiConfig {
     api_endpoint: String,
@@ -33,7 +36,32 @@ impl PangolinApiConfig {
         &self.listeners
     }
 
-    pub fn tst() {}
+    fn create_client(&self) -> PangolinClient {
+        PangolinClient::new(&self.api_endpoint, &self.api_key, &self.org)
+    }
+
+    pub async fn check_resource(&self) -> Result<(), shared::Error> {
+        let client = self.create_client();
+
+        // TODO: handle situation where *.subdomain.basedomain.url is being used but pangolin only defines
+        //       basedomain.url, this should still be valid but is not being covered here
+        // Check base domain exists
+        if !stream::iter(&self.listeners)
+            .all(|listener| async {
+                client
+                    .domain_exists(listener.tld())
+                    .await
+                    .unwrap_or_default()
+            })
+            .await
+        {
+            return Err(shared::Error::Validate(
+                shared::ValidateError::DomainsNotValid,
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +88,10 @@ impl Listener {
         } else {
             self.tld == hostname.as_ref()
         }
+    }
+
+    pub fn tld(&self) -> &String {
+        &self.tld
     }
 }
 

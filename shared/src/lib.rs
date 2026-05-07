@@ -20,6 +20,7 @@ pub enum Error {
     NewtIdNotGenerated,
     NewtSecretNotGenerated,
     FetchError(FetchError),
+    Validate(ValidateError),
     #[from(skip)]
     MissingObjectKey(#[error(not(source))] &'static str),
     #[from(skip)]
@@ -29,4 +30,9 @@ pub enum Error {
 #[derive(Debug, Display, Error, From)]
 pub enum FetchError {
     NoValidConfigs,
+}
+
+#[derive(Debug, Display, Error, From)]
+pub enum ValidateError {
+    DomainsNotValid,
 }

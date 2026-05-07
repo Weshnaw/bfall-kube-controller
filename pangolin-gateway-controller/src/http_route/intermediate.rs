@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+use futures::{StreamExt, stream};
 use gateway_api::apis::experimental::httproutes::HttpRouteRulesMatchesPathType;
 
 use crate::pangolin::PangolinApiConfig;
@@ -37,8 +38,8 @@ impl HostUpdate {
         }
     }
 
-    pub fn check_resource(&self) -> Result<(), shared::Error> {
-        todo!()
+    pub fn pangolin_server(&self) -> &PangolinApiConfig {
+        &self.pangolin_server
     }
 
     pub fn check_rule(&self, _rule: &Rule) -> Result<(), shared::Error> {

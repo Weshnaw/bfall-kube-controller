@@ -33,7 +33,7 @@ async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared:
 
     let cfg = fetch_kubernetes_data(hr, ctx.clone()).await?;
 
-    validate_against_pangolin_api(&cfg)?;
+    validate_against_pangolin_api(&cfg).await?;
 
     // Do API Updates
     if !ctx.is_leader() {

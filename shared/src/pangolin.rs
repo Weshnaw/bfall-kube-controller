@@ -33,6 +33,16 @@ impl Site {
     }
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateSiteRequest {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nice_id: Option<String>,
+    #[serde(rename = "type")]
+    site_type: String,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
@@ -42,25 +52,21 @@ pub enum Status {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct Pagination {
-    total: u32,
-    page_size: u32,
+struct Domain {
+    base_domain: String,
 }
 
 #[derive(Deserialize, Debug)]
-struct SitesData {
-    sites: Vec<Site>,
+struct PaginatedData<T> {
+    items: Vec<T>,
     pagination: Pagination,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct CreateSiteRequest {
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nice_id: Option<String>,
-    #[serde(rename = "type")]
-    site_type: String,
+struct Pagination {
+    total: u32,
+    page_size: u32,
 }
 
 #[derive(Deserialize, Debug)]
@@ -91,7 +97,7 @@ impl PangolinClient {
 
     pub async fn find_site_by_name(
         &self,
-        target_name: &str,
+        target_name: impl AsRef<str>,
     ) -> Result<Option<Site>, crate::Error> {
         let mut page = 1u32;
 
@@ -99,16 +105,20 @@ impl PangolinClient {
             let response = self
                 .client
                 .get(format!("{}/v1/org/{}/sites", self.base_url, self.org))
-                .query(&[("page", page), ("pageSize", 20)])
+                .query(&[("page", page)])
                 .header("Authorization", format!("Bearer {}", self.token))
                 .send()
                 .await?
-                .json::<ApiResponse<SitesData>>()
+                .json::<ApiResponse<PaginatedData<Site>>>()
                 .await?;
 
             let data = response.data;
 
-            if let Some(site) = data.sites.into_iter().find(|s| s.name == target_name) {
+            if let Some(site) = data
+                .items
+                .into_iter()
+                .find(|s| s.name == target_name.as_ref())
+            {
                 return Ok(Some(site));
             }
 
@@ -155,5 +165,40 @@ impl PangolinClient {
             .await?;
 
         Ok(response.data)
+    }
+
+    pub async fn domain_exists(&self, target: impl AsRef<str>) -> Result<bool, crate::Error> {
+        let mut page = 1u32;
+
+        loop {
+            let response = self
+                .client
+                .get(format!("{}/v1/org/{}/sites", self.base_url, self.org))
+                .query(&[("page", page)])
+                .header("Authorization", format!("Bearer {}", self.token))
+                .send()
+                .await?
+                .json::<ApiResponse<PaginatedData<Domain>>>()
+                .await?;
+
+            let data = response.data;
+
+            if let Some(_domain) = data
+                .items
+                .into_iter()
+                .find(|s| s.base_domain == target.as_ref())
+            {
+                return Ok(true);
+            }
+
+            let total_pages = data.pagination.total.div_ceil(data.pagination.page_size);
+            if page >= total_pages {
+                break;
+            }
+
+            page += 1;
+        }
+
+        Ok(false)
     }
 }
