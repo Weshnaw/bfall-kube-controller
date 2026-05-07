@@ -178,6 +178,24 @@ impl PangolinResourceConfig {
     pub async fn check_resource(self) -> Result<(), shared::Error> {
         let client = self.create_client();
 
+        if !client.check_org().await? {
+            return Err(shared::Error::Validate(shared::ValidateError::InvalidOrg));
+        }
+
+        // TODO: would be ideal to return a group of errors if there are multiple invalid sites
+        if !stream::iter(&self.sites)
+            .all(|site| {
+                let site = site.clone();
+                async { client.check_site(site).await.unwrap_or_default() }
+            })
+            .await
+        {
+            return Err(shared::Error::Validate(
+                shared::ValidateError::DomainsNotValid,
+            ));
+        }
+
+        // TODO: would be ideal to return a group of errors if there are multiple invalid listeners
         // TODO: handle situation where *.subdomain.basedomain.url is being used but pangolin only defines
         //       basedomain.url, this should still be valid but is not being covered here
         // Check base domain exists
@@ -276,7 +294,9 @@ impl PangolinApiConfig {
         if response.message.to_lowercase() == "healthy" {
             Ok(())
         } else {
-            Err(shared::Error::ApiServerUnhealthy)
+            Err(shared::Error::Validate(
+                shared::ValidateError::ApiServerUnhealthy,
+            ))
         }
     }
 }

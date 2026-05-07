@@ -74,6 +74,11 @@ struct ApiResponse<T> {
     data: T,
 }
 
+#[derive(Deserialize, Debug)]
+struct ApiResponseSkipData {
+    success: bool,
+}
+
 pub struct PangolinClient {
     client: Client,
     base_url: String,
@@ -200,5 +205,36 @@ impl PangolinClient {
         }
 
         Ok(false)
+    }
+
+    pub async fn check_org(&self) -> Result<bool, crate::Error> {
+        let response = self
+            .client
+            .get(format!("{}/v1/org/{}", self.base_url, self.org))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send()
+            .await?
+            .json::<ApiResponseSkipData>()
+            .await?;
+
+        Ok(response.success)
+    }
+
+    pub async fn check_site(&self, site_id: impl AsRef<str>) -> Result<bool, crate::Error> {
+        let response = self
+            .client
+            .get(format!(
+                "{}/v1/org/{}/site/{}",
+                self.base_url,
+                self.org,
+                site_id.as_ref()
+            ))
+            .header("Authorization", format!("Bearer {}", self.token))
+            .send()
+            .await?
+            .json::<ApiResponseSkipData>()
+            .await?;
+
+        Ok(response.success)
     }
 }

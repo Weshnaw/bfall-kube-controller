@@ -22,7 +22,6 @@ pub enum Error {
     ResourceNotFound,
     ResourceNotAccepted,
     NewtSecretNotGenerated,
-    ApiServerUnhealthy,
     FetchError(FetchError),
     Validate(ValidateError),
     Utf8Error(Utf8Error),
@@ -37,9 +36,9 @@ impl Error {
         match self {
             Error::KubeError(error) => format!("Failed to access kubernetes resource: {}", error),
             Error::ReqwestError(error) => format!("Unable to access server: {}", error),
-            Error::ApiServerUnhealthy => "API Server is Unhealthy".into(),
+            Error::Validate(error) => format!("API Server Validation failed: {}", error),
             Error::MissingObjectKey(key) => format!("Failed to find object key: {}", key),
-            _ => "Internal Server Error".into(),
+            _ => format!("Generic Error: {}", self),
         }
     }
 }
@@ -52,4 +51,7 @@ pub enum FetchError {
 #[derive(Debug, Display, Error, From)]
 pub enum ValidateError {
     DomainsNotValid,
+    InvalidOrg,
+    ApiServerUnhealthy,
+    SiteSlugInvalid,
 }
