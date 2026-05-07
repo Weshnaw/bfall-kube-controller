@@ -157,7 +157,7 @@ async fn retrieve_pangolin_api_details(
         warn!(
             http_route = &hr_name,
             gateway = &gw_name,
-            "Gateway not in cache yet, requeueing"
+            "Gateway not in cache yet, skipping"
         );
         return None;
     };
@@ -170,7 +170,7 @@ async fn retrieve_pangolin_api_details(
         .unwrap_or(false);
 
     if !gw_accepted {
-        warn!(gateway = &gw_name, "Gateway is not accepted, requeueing");
+        warn!(gateway = &gw_name, "Gateway is not accepted, skipping");
         return None;
     }
     PangolinResourceConfig::from_gateway(client, &gw, &data.gc_store)
