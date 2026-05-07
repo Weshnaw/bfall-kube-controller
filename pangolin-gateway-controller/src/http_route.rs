@@ -51,8 +51,7 @@ async fn reconcile(hr: Arc<HTTPRoute>, ctx: Arc<Data>) -> Result<Action, shared:
 fn error_policy(_svc: Arc<HTTPRoute>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
     counter!("hr_reconciled_error").increment(1);
-    // TODO: apply error status
-    Action::requeue(Duration::from_secs(1))
+    Action::requeue(Duration::from_mins(1))
 }
 
 struct Data {

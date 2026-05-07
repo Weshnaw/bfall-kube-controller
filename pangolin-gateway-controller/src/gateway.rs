@@ -149,7 +149,7 @@ async fn reconcile(gw: Arc<Gateway>, ctx: Arc<Data>) -> Result<Action, shared::E
 fn error_policy(_gw: Arc<Gateway>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
     counter!("gw_reconciled_error").increment(1);
-    Action::requeue(Duration::from_secs(1))
+    Action::requeue(Duration::from_mins(1))
 }
 
 struct Data {
