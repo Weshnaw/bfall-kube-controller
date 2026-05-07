@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-use futures::{StreamExt, stream};
 use gateway_api::apis::experimental::httproutes::HttpRouteRulesMatchesPathType;
 
 use crate::pangolin::PangolinApiConfig;
