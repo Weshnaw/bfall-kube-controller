@@ -27,7 +27,7 @@ metadata:
   namespace: default
 type: Opaque
 stringData:
-  api-key: "your-secret-api-key-here"
+  api-key: "${GATEWAY_API_KEY}"
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
