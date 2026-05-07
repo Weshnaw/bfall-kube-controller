@@ -92,7 +92,7 @@ impl PangolinClient {
     pub async fn find_site_by_name(
         &self,
         target_name: &str,
-    ) -> Result<Option<Site>, shared::Error> {
+    ) -> Result<Option<Site>, crate::Error> {
         let mut page = 1u32;
 
         loop {
@@ -123,7 +123,7 @@ impl PangolinClient {
         Ok(None)
     }
 
-    pub async fn delete_site(&self, site_id: u32) -> Result<(), reqwest::Error> {
+    pub async fn delete_site(&self, site_id: u32) -> Result<(), crate::Error> {
         self.client
             .delete(format!("{}/v1/site/{}", self.base_url, site_id))
             .header("Authorization", format!("Bearer {}", self.token))
@@ -137,7 +137,7 @@ impl PangolinClient {
         &self,
         name: impl Into<String>,
         nice_id: Option<String>,
-    ) -> Result<Site, shared::Error> {
+    ) -> Result<Site, crate::Error> {
         let body = CreateSiteRequest {
             name: name.into(),
             site_type: "newt".into(),

@@ -1,5 +1,7 @@
 #[cfg(feature = "controller")]
 pub mod controller;
+#[cfg(feature = "pangolin")]
+pub mod pangolin;
 
 use std::env::VarError;
 

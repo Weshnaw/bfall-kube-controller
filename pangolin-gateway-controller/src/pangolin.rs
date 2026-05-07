@@ -32,6 +32,8 @@ impl PangolinApiConfig {
     pub fn listeners(&self) -> &Vec<Listener> {
         &self.listeners
     }
+
+    pub fn tst() {}
 }
 
 #[derive(Debug, Clone)]
@@ -56,7 +58,7 @@ impl Listener {
         if self.wildcard {
             hostname.as_ref().ends_with(&format!(".{}", self.tld))
         } else {
-            &self.tld == hostname.as_ref()
+            self.tld == hostname.as_ref()
         }
     }
 }

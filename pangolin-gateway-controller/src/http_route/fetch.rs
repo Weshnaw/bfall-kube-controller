@@ -212,7 +212,7 @@ async fn retrieve_pangolin_api_details(
     let org = infra_labels.get("bfall.me/pangolin-org").cloned()?;
     let visibility = infra_labels
         .get("bfall.me/pangolin-visibility")
-        .and_then(|label| Visibility::from_str(label))?;
+        .and_then(Visibility::from_str)?;
     let sites = infra_labels
         .get("bfall.me/pangolin-site")
         .map(|str| {

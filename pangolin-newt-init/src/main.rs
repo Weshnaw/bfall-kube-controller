@@ -10,9 +10,9 @@ use kube::{
     Api, Client,
     api::{Patch, PatchParams},
 };
-use pangolin_newt_init::pangolin::PangolinClient;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use shared::pangolin::PangolinClient;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 

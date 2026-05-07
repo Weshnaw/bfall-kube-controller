@@ -9,7 +9,7 @@ pub fn validate_against_pangolin_api(data: &RetrievedData) -> Result<(), shared:
     }
 
     for (hostname, rule) in data.rules_iter() {
-        hostname.check_rule(&rule)?;
+        hostname.check_rule(rule)?;
     }
     Ok(())
 }

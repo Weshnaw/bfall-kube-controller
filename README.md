@@ -23,7 +23,6 @@ README WIP
 A utility init script that will register the current pod to a pangolin server, and additionally it will update the pod's annotations with the pangolin nice_id such that it might be able to be picked up by the gateway controller
 
 ### TODOs:
-- Refactor `pangolin.rs` into the shared lib
 - Better handling of if there is an existing site
 - migrate over to use provisioning: [news](https://website.fossorial.io/news/templated-provisioning-and-rollouts-for-the-edge), [doc](https://docs.pangolin.net/manage/sites/site-provisioning)
   - how to handle the nice_id label? 
