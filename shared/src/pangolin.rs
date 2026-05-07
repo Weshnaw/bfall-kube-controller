@@ -1,5 +1,6 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, trace};
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +59,7 @@ struct Domain {
 
 #[derive(Deserialize, Debug)]
 struct PaginatedData<T> {
+    #[serde(alias = "domains")]
     items: Vec<T>,
     pagination: Pagination,
 }
@@ -66,6 +68,7 @@ struct PaginatedData<T> {
 #[serde(rename_all = "camelCase")]
 struct Pagination {
     total: u32,
+    #[serde(alias = "limit")]
     page_size: u32,
 }
 
@@ -127,6 +130,7 @@ impl PangolinClient {
                 return Ok(Some(site));
             }
 
+            // TODO: double check pagination math, this might check 1 more then needed
             let total_pages = data.pagination.total.div_ceil(data.pagination.page_size);
             if page >= total_pages {
                 break;
@@ -173,37 +177,43 @@ impl PangolinClient {
     }
 
     pub async fn domain_exists(&self, target: impl AsRef<str>) -> Result<bool, crate::Error> {
-        let mut page = 1u32;
+        let mut page = 0u32;
 
         loop {
             let response = self
                 .client
-                .get(format!("{}/v1/org/{}/sites", self.base_url, self.org))
-                .query(&[("page", page)])
+                .get(format!("{}/v1/org/{}/domains", self.base_url, self.org))
+                .query(&[("offset", page)])
                 .header("Authorization", format!("Bearer {}", self.token))
                 .send()
                 .await?
                 .json::<ApiResponse<PaginatedData<Domain>>>()
                 .await?;
 
-            let data = response.data;
-
-            if let Some(_domain) = data
+            if let Some(domain) = response
+                .data
                 .items
-                .into_iter()
+                .iter()
                 .find(|s| s.base_domain == target.as_ref())
             {
+                debug!(domain = ?domain, target = target.as_ref(), "Domain found...");
                 return Ok(true);
             }
 
-            let total_pages = data.pagination.total.div_ceil(data.pagination.page_size);
+            trace!(response = ?response, "Domain not found on page");
+
+            let total_pages = response
+                .data
+                .pagination
+                .total
+                .div_ceil(response.data.pagination.page_size);
+            page += 1;
             if page >= total_pages {
                 break;
             }
-
-            page += 1;
         }
 
+        debug!(target = target.as_ref(), "Domain not found...");
         Ok(false)
     }
 

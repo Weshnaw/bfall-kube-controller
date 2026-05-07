@@ -179,6 +179,7 @@ impl PangolinResourceConfig {
         let client = self.create_client();
 
         if !client.check_org().await? {
+            error!(org = ?self.org, "Org not valid");
             return Err(shared::Error::Validate(shared::ValidateError::InvalidOrg));
         }
 
@@ -190,8 +191,9 @@ impl PangolinResourceConfig {
             })
             .await
         {
+            error!(org = ?self.sites, "Sites not valid");
             return Err(shared::Error::Validate(
-                shared::ValidateError::DomainsNotValid,
+                shared::ValidateError::SiteSlugInvalid,
             ));
         }
 
@@ -204,10 +206,14 @@ impl PangolinResourceConfig {
                 client
                     .domain_exists(listener.tld())
                     .await
-                    .unwrap_or_default()
+                    .unwrap_or_else(|e| {
+                        warn!("Domain Exists Failed: {:?}", e);
+                        false
+                    })
             })
             .await
         {
+            error!(listeners = ?self.listeners, "Domains not valid");
             return Err(shared::Error::Validate(
                 shared::ValidateError::DomainsNotValid,
             ));
