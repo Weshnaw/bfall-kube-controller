@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use gateway_api::apis::experimental::httproutes::HttpRouteRulesMatchesPathType;
 
-use crate::pangolin::PangolinApiConfig;
+use crate::pangolin::PangolinResourceConfig;
 
 pub struct RetrievedData {
     hostnames: Vec<HostUpdate>,
@@ -26,18 +26,18 @@ impl RetrievedData {
 
 pub struct HostUpdate {
     host: String,
-    pangolin_server: PangolinApiConfig,
+    pangolin_server: PangolinResourceConfig,
 }
 
 impl HostUpdate {
-    pub fn new(host: String, pangolin_server: PangolinApiConfig) -> Self {
+    pub fn new(host: String, pangolin_server: PangolinResourceConfig) -> Self {
         Self {
             host,
             pangolin_server,
         }
     }
 
-    pub fn pangolin_server(&self) -> &PangolinApiConfig {
+    pub fn pangolin_server(&self) -> &PangolinResourceConfig {
         &self.pangolin_server
     }
 

@@ -1,5 +1,7 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
+use crate::{CONTROLLER_NAME, pangolin::PangolinApiConfig};
+use futures::TryFutureExt;
 use gateway_api::apis::experimental::{
     constants::{GatewayClassConditionReason, GatewayClassConditionType},
     gatewayclasses::GatewayClass,
@@ -22,47 +24,78 @@ use shared::controller::{BFallController, CheckLeadershipStatus};
 use tokio::{sync::watch, time::Instant};
 use tracing::{debug, info, warn};
 
-use crate::CONTROLLER_NAME;
-
 #[tracing::instrument(level = "debug", skip(ctx, gc), fields(gc.name = gc.metadata.name, gc.namespace=gc.metadata.namespace))]
 async fn reconcile(gc: Arc<GatewayClass>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
     let start = Instant::now();
-    let name = gc.name_any();
 
     if gc.spec.controller_name != CONTROLLER_NAME {
         return Ok(Action::await_change());
     }
 
     counter!("gc_reconciled").increment(1);
-
+    let name = gc.name_any();
     info!(name, "Reconciling GatewayClass");
 
-    let api: Api<GatewayClass> = Api::all(ctx.client.clone());
+    let client = &ctx.client;
 
-    let condition = Condition {
-        last_transition_time: Time(Timestamp::now()),
-        message: "GatewayClass is accepted by the gateway-controller".into(),
-        observed_generation: gc.metadata.generation,
-        reason: GatewayClassConditionReason::Accepted.to_string(),
-        status: "True".into(),
-        type_: GatewayClassConditionType::Accepted.to_string(),
-    };
+    let api_config = PangolinApiConfig::from_gatewayclass(client, &gc)
+        .and_then(|config| config.check_endpoint())
+        .await;
 
-    // TODO: check API details, and mark gateway with status if not valid
-    // TODO: graceful shutdown update the conditions to false
-    let status_patch = json!({
-        "status": {
-            "conditions": [condition],
+    match api_config {
+        Ok(_) => {
+            let condition = Condition {
+                last_transition_time: Time(Timestamp::now()),
+                message: "GatewayClass is accepted by the gateway-controller".into(),
+                observed_generation: gc.metadata.generation,
+                reason: GatewayClassConditionReason::Accepted.to_string(),
+                status: "True".into(),
+                type_: GatewayClassConditionType::Accepted.to_string(),
+            };
+
+            // TODO: graceful shutdown update the conditions to false
+            let status_patch = json!({
+                "status": {
+                    "conditions": [condition],
+                }
+            });
+            let api: Api<GatewayClass> = Api::all(client.clone());
+
+            if !ctx.is_leader() {
+                debug!("Skipping reconciliation as not leader");
+                return Ok(Action::requeue(Duration::from_secs(30)));
+            }
+
+            api.patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
+                .await?;
+            info!(name, "GatewayClass marked Accepted");
         }
-    });
-    if !ctx.is_leader() {
-        debug!("Skipping reconciliation as not leader");
-        return Ok(Action::requeue(Duration::from_secs(30)));
-    }
+        Err(e) => {
+            // TODO: do a better job at condition reason
+            let condition = Condition {
+                last_transition_time: Time(Timestamp::now()),
+                message: e.condition_message(),
+                observed_generation: gc.metadata.generation,
+                reason: GatewayClassConditionReason::InvalidParameters.to_string(),
+                status: "False".into(),
+                type_: GatewayClassConditionType::Accepted.to_string(),
+            };
 
-    api.patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
-        .await?;
-    info!(name, "GatewayClass marked Accepted");
+            let status_patch = json!({
+                "status": {
+                    "conditions": [condition],
+                }
+            });
+            let client = &ctx.client;
+            let api: Api<GatewayClass> = Api::all(client.clone());
+            let name = gc.name_any();
+            if ctx.is_leader() {
+                api.patch_status(&name, &PatchParams::default(), &Patch::Merge(status_patch))
+                    .await
+                    .ok();
+            }
+        }
+    }
 
     histogram!("gc_reconcile_time").record(start.elapsed().as_secs_f32());
     Ok(Action::requeue(Duration::from_mins(5)))
@@ -73,7 +106,8 @@ async fn reconcile(gc: Arc<GatewayClass>, ctx: Arc<Data>) -> Result<Action, shar
 fn error_policy(_gc: Arc<GatewayClass>, e: &shared::Error, _ctx: Arc<Data>) -> Action {
     warn!("Reconcile error: {}", e);
     counter!("gc_reconciled_error").increment(1);
-    Action::requeue(Duration::from_secs(1))
+
+    Action::requeue(Duration::from_mins(1))
 }
 
 struct Data {

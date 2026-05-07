@@ -22,7 +22,6 @@ use crate::http_route::{
 };
 
 mod fetch;
-mod intermediate;
 mod sync;
 mod validate;
 

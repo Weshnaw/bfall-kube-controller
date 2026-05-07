@@ -54,7 +54,10 @@ async fn reconcile(gw: Arc<Gateway>, ctx: Arc<Data>) -> Result<Action, shared::E
 
     let now = Time(Timestamp::now());
     let generation = gw.metadata.generation;
-
+    // TODO: move this check on the gateway level instead of per route, and then we only check if the gateway is valid
+    // for hostname in data.hosts_iter() {
+    //     hostname.pangolin_server().check_resource().await?;
+    // }
     let accepted = Condition {
         last_transition_time: now.clone(),
         message: "Gateway accepted by gateway-controller".into(),

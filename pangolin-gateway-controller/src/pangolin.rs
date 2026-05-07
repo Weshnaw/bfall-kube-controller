@@ -1,33 +1,37 @@
 #![allow(dead_code)]
 
 use futures::{StreamExt, stream};
+use gateway_api::apis::experimental::gatewayclasses::GatewayClass;
+use k8s_openapi::api::core::v1::Secret;
+use kube::{Api, Client};
+use serde::Deserialize;
 use shared::pangolin::PangolinClient;
+use tracing::{debug, info};
+
+use crate::crd::PangolinConfig;
 
 #[derive(Debug, Clone)]
-pub struct PangolinApiConfig {
-    api_endpoint: String,
-    api_key: String,
+pub struct PangolinResourceConfig {
+    api: PangolinApiConfig,
     org: String,
     visibility: Visibility,
     sites: Vec<String>,
     listeners: Vec<Listener>,
 }
 
-impl PangolinApiConfig {
+impl PangolinResourceConfig {
     pub fn new(
-        api_endpoint: String,
-        api_key: String,
+        api: PangolinApiConfig,
         org: String,
         visibility: Visibility,
         sites: Vec<String>,
         listeners: Vec<Listener>,
     ) -> Self {
-        PangolinApiConfig {
-            api_endpoint,
+        PangolinResourceConfig {
+            api,
             org,
             visibility,
             sites,
-            api_key,
             listeners,
         }
     }
@@ -37,7 +41,7 @@ impl PangolinApiConfig {
     }
 
     fn create_client(&self) -> PangolinClient {
-        PangolinClient::new(&self.api_endpoint, &self.api_key, &self.org)
+        PangolinClient::new(&self.api.api_endpoint, &self.api.api_key, &self.org)
     }
 
     pub async fn check_resource(&self) -> Result<(), shared::Error> {
@@ -62,6 +66,93 @@ impl PangolinApiConfig {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PangolinApiConfig {
+    api_endpoint: String,
+    api_key: String,
+}
+
+impl PangolinApiConfig {
+    pub async fn from_gatewayclass(
+        client: &Client,
+        gc: &GatewayClass,
+    ) -> Result<Self, shared::Error> {
+        debug!("Retrieving params_ref");
+        let params_ref = gc
+            .spec
+            .parameters_ref
+            .as_ref()
+            .ok_or(shared::Error::MissingObjectKey(
+                "gatewayclass.spec.parameters_ref",
+            ))?;
+
+        let config_name = &params_ref.name;
+        info!("Retrieving PangolinConfig: {}", config_name);
+        let config_api: Api<PangolinConfig> = Api::all(client.clone());
+        let config = config_api.get(config_name).await?;
+
+        Self::from_config(client, &config).await
+    }
+
+    pub async fn from_config(
+        client: &Client,
+        config: &PangolinConfig,
+    ) -> Result<Self, shared::Error> {
+        // Fetch the Secret referenced by the config
+        let secret_name = &config.spec.api_key_ref.name;
+        let secret_ns = config
+            .spec
+            .api_key_ref
+            .namespace
+            .as_deref()
+            .unwrap_or(client.default_namespace());
+        debug!("Retrieving Secret: {}:{}", secret_ns, secret_name);
+        let secrets: Api<Secret> = Api::namespaced(client.clone(), secret_ns);
+        let secret = secrets.get(secret_name).await?;
+
+        debug!("Retrieving Data");
+
+        let api_endpoint = config.spec.api.clone();
+        let api_key = str::from_utf8(
+            &secret
+                .data
+                .ok_or(shared::Error::MissingObjectKey("secret.spec.data"))?
+                .get(&config.spec.api_key_ref.key)
+                .ok_or(shared::Error::MissingObjectKey(
+                    "secret.spec.data.{secret_key}",
+                ))?
+                .0,
+        )?
+        .to_string();
+
+        Ok(Self {
+            api_endpoint,
+            api_key,
+        })
+    }
+
+    pub async fn check_endpoint(self) -> Result<(), shared::Error> {
+        let response = reqwest::Client::new()
+            .get(format!("{}/v1/", self.api_endpoint))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?
+            .json::<Status>()
+            .await?;
+
+        if response.message.to_lowercase() == "healthy" {
+            Ok(())
+        } else {
+            Err(shared::Error::ApiServerUnhealthy)
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+struct Status {
+    message: String,
 }
 
 #[derive(Debug, Clone)]

@@ -1,4 +1,4 @@
-use crate::http_route::intermediate::RetrievedData;
+use crate::intermediate::RetrievedData;
 
 pub fn update_pangolin_api(data: &RetrievedData) -> Result<(), shared::Error> {
     for (hostname, rule) in data.rules_iter() {

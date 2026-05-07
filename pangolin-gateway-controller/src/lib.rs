@@ -2,6 +2,7 @@ pub mod crd;
 mod gateway;
 mod gateway_class;
 mod http_route;
+mod intermediate;
 mod pangolin;
 
 pub use gateway::controller as gateway_controller;

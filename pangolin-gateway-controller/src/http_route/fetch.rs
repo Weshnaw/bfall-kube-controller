@@ -6,18 +6,15 @@ use gateway_api::apis::experimental::{
     gateways::Gateway,
     httproutes::{HTTPRoute, HttpRouteParentRefs},
 };
-use k8s_openapi::api::core::v1::{Pod, Secret};
+use k8s_openapi::api::core::v1::Pod;
 use kube::{Api, ResourceExt, api::ListParams, runtime::reflector::ObjectRef};
 use shared::FetchError;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    crd::PangolinConfig,
-    http_route::{
-        Data,
-        intermediate::{Backend, HostUpdate, Match, RetrievedData, Rule},
-    },
-    pangolin::{Listener, PangolinApiConfig, Protocol, Visibility},
+    http_route::Data,
+    intermediate::{Backend, HostUpdate, Match, RetrievedData, Rule},
+    pangolin::{Listener, PangolinApiConfig, PangolinResourceConfig, Protocol, Visibility},
 };
 
 pub async fn fetch_kubernetes_data(
@@ -128,7 +125,7 @@ async fn retrieve_pangolin_api_details(
     parent_ref: &HttpRouteParentRefs,
     hr: &HTTPRoute,
     data: &Data,
-) -> Option<PangolinApiConfig> {
+) -> Option<PangolinResourceConfig> {
     let client = &data.client;
     let default_ns = client.default_namespace();
     let gw_store = &data.gw_store;
@@ -170,44 +167,26 @@ async fn retrieve_pangolin_api_details(
         return None;
     };
 
-    debug!("Retrieving params_ref");
-    let Some(params_ref) = &gc.spec.parameters_ref else {
-        warn!("No params ref found...");
-        // TODO: maybe add configured default params assigned to the deployment
+    let gc_accepted = gc
+        .status
+        .as_ref()
+        .and_then(|s| s.conditions.as_ref())
+        .and_then(|conditions| conditions.iter().find(|c| c.type_ == "Accepted"))
+        .map(|c| c.status == "True")
+        .unwrap_or(false);
+
+    if !gc_accepted {
+        warn!(
+            gateway_class = &gc_name,
+            "GatewayClass is not accepted, requeueing"
+        );
         return None;
-    };
+    }
 
-    let config_name = &params_ref.name;
-    info!("Retrieving PangolinConfig: {}", config_name);
-    let config_api: Api<PangolinConfig> = Api::all(client.clone());
-    let config = match config_api.get(config_name).await {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            warn!("No pangolin config found: {}", e);
-            return None;
-        }
-    };
+    let api_config = PangolinApiConfig::from_gatewayclass(client, &gc)
+        .await
+        .ok()?;
 
-    // Fetch the Secret referenced by the config
-    let secret_name = &config.spec.api_key_ref.name;
-    let secret_ns = &config
-        .spec
-        .api_key_ref
-        .namespace
-        .as_deref()
-        .unwrap_or(default_ns);
-    debug!("Retrieving Secret: {}:{}", secret_ns, secret_name);
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), secret_ns);
-    let secret = match secrets.get(secret_name).await {
-        Ok(s) => s,
-        Err(e) => {
-            warn!("No secret found: {}", e);
-            return None;
-        }
-    };
-
-    debug!("Retrieving Data");
-    let api_endpoint = config.spec.api;
     let infra_labels = gw.spec.infrastructure.as_ref()?.labels.as_ref()?;
     let org = infra_labels.get("bfall.me/pangolin-org").cloned()?;
     let visibility = infra_labels
@@ -257,10 +236,6 @@ async fn retrieve_pangolin_api_details(
         return None;
     }
 
-    let api_key = str::from_utf8(&secret.data?.get(&config.spec.api_key_ref.key)?.0)
-        .ok()?
-        .to_string();
-
     let listeners = gw
         .spec
         .listeners
@@ -292,13 +267,8 @@ async fn retrieve_pangolin_api_details(
         "Obtained Pangolin API details from Gateway: {}:{}",
         gw_namespace, &gw_name
     );
-    Some(PangolinApiConfig::new(
-        api_endpoint,
-        api_key,
-        org,
-        visibility,
-        sites,
-        listeners,
+    Some(PangolinResourceConfig::new(
+        api_config, org, visibility, sites, listeners,
     ))
 }
 
