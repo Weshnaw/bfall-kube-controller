@@ -58,8 +58,15 @@ struct Domain {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Resource {
+    full_domain: String,
+}
+
+#[derive(Deserialize, Debug)]
 struct PaginatedData<T> {
     #[serde(alias = "domains")]
+    #[serde(alias = "resources")]
     items: Vec<T>,
     pagination: Pagination,
 }
@@ -246,5 +253,41 @@ impl PangolinClient {
             .await?;
 
         Ok(response.success)
+    }
+
+    pub async fn check_host(&self, host_url: impl AsRef<str>) -> Result<bool, crate::Error> {
+        let mut page = 1u32;
+
+        loop {
+            let response = self
+                .client
+                .get(format!("{}/v1/org/{}/resources", self.base_url, self.org))
+                .query(&[("page", page)])
+                .header("Authorization", format!("Bearer {}", self.token))
+                .send()
+                .await?
+                .json::<ApiResponse<PaginatedData<Resource>>>()
+                .await?;
+
+            let data = response.data;
+
+            if data
+                .items
+                .iter()
+                .any(|s| s.full_domain == host_url.as_ref())
+            {
+                return Ok(false);
+            }
+
+            // TODO: double check pagination math, this might check 1 more then needed
+            let total_pages = data.pagination.total.div_ceil(data.pagination.page_size);
+            if page >= total_pages {
+                break;
+            }
+
+            page += 1;
+        }
+
+        Ok(true)
     }
 }

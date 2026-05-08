@@ -171,7 +171,11 @@ impl PangolinResourceConfig {
         &self.listeners
     }
 
-    fn create_client(&self) -> PangolinClient {
+    pub fn visibility(&self) -> &Visibility {
+        &self.visibility
+    }
+
+    pub fn create_client(&self) -> PangolinClient {
         PangolinClient::new(&self.api.api_endpoint, &self.api.api_key, &self.org)
     }
 

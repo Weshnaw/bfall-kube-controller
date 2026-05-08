@@ -10,6 +10,7 @@ use derive_more::{Debug, Display, Error, From};
 #[derive(Debug, Display, Error, From)]
 pub enum Error {
     LostLeadership,
+    NotImplemented,
     KubeError(kube::Error),
     LeaderElectionError(kube_leader_election::Error),
     IoError(std::io::Error),
@@ -54,4 +55,5 @@ pub enum ValidateError {
     InvalidOrg,
     ApiServerUnhealthy,
     SiteSlugInvalid,
+    DomainAlreadyInUse,
 }

@@ -16,8 +16,11 @@ impl RetrievedData {
     pub fn hosts_iter(&self) -> impl Iterator<Item = &HostUpdate> {
         self.hostnames.iter()
     }
+    pub fn rules_iter(&self) -> impl Iterator<Item = &Rule> {
+        self.rules.iter()
+    }
 
-    pub fn rules_iter(&self) -> impl Iterator<Item = (&HostUpdate, &Rule)> {
+    pub fn combined_iter(&self) -> impl Iterator<Item = (&HostUpdate, &Rule)> {
         self.hostnames
             .iter()
             .flat_map(|hostname| self.rules.iter().map(move |rule| (hostname, rule)))
@@ -41,8 +44,22 @@ impl HostUpdate {
         &self.pangolin_server
     }
 
-    pub fn check_rule(&self, _rule: &Rule) -> Result<(), shared::Error> {
-        todo!()
+    pub async fn check_hostname(&self) -> Result<(), shared::Error> {
+        let client = self.pangolin_server.create_client();
+
+        match self.pangolin_server.visibility() {
+            crate::pangolin::Visibility::Public => {
+                if client.check_host(&self.host).await? {
+                    // TODO: consider somehow handling existing domains
+                    return Err(shared::Error::Validate(
+                        shared::ValidateError::DomainAlreadyInUse,
+                    ));
+                }
+
+                Ok(())
+            }
+            crate::pangolin::Visibility::Private => Err(shared::Error::NotImplemented),
+        }
     }
 
     pub fn apply_rule(&self, _rule: &Rule) -> Result<(), shared::Error> {
@@ -58,6 +75,12 @@ pub struct Rule {
 impl Rule {
     pub fn new(backends: Vec<Backend>, _matches: Vec<Match>) -> Self {
         Self { backends, _matches }
+    }
+
+    pub async fn check_rule(&self) -> Result<(), shared::Error> {
+        // TODO: check if backend is up and working
+        // TODO: check if matches are valid for pangolin
+        Ok(())
     }
 }
 
