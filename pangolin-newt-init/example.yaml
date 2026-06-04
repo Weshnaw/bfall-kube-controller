@@ -4,7 +4,7 @@ metadata:
   name: homelab-kubernetes
   namespace: bfall-me
 spec:
-  replicas: 1
+  replicas: 2
   podManagementPolicy: Parallel
   selector:
     matchLabels:
