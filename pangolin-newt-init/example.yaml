@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: homelab-kubernetes
+  namespace: bfall-me
+spec:
+  replicas: 2
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: newt-site
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: newt-site
+    spec:
+      serviceAccountName: newt-init
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: newt-site
+      initContainers:
+        - name: site-register
+          image: ghcr.io/weshnaw/bfall-kube-controller/pangolin-newt-init:sha-cb1d8ac
+          env:
+            - name: PANGOLIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: pangolin-init-secret
+                  key: PANGOLIN_API_KEY
+            - name: PANGOLIN_ORG
+              value: bfall-me
+            - name: PANGOLIN_API_ENDPOINT
+              value: https://api.pangolin.bfall.me
+            - name: PANGOLIN_ENDPOINT
+              value: https://pangolin.bfall.me
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: newt-config
+              mountPath: /config
+      containers:
+        - name: newt
+          image: docker.io/fosrl/newt:1.12.3
+          env:
+            - name: CONFIG_FILE
+              value: /config/config.json
+          volumeMounts:
+            - name: newt-config
+              mountPath: /config
+  volumeClaimTemplates:
+    - metadata:
+        name: newt-config
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Mi
+# ---
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: pangolin-init-secret
+#   namespace: bfall-me
+# type: Opaque
+# stringData:
+#   PANGOLIN_API_KEY: "changeme"

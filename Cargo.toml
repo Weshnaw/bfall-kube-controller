@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["shared","tailscale-ingress-controller"]
+members = ["shared","tailscale-ingress-controller","pangolin-gateway-controller", "pangolin-newt-init"]
 
 [workspace.package]
 version = "0.2.0"
@@ -10,6 +10,8 @@ edition = "2024"
 shared = { path = "./shared" }
 derive_more = { version = "2.1.1", features = ["from", "error", "display", "debug"] }
 serde = "1.0.228"
+serde_json = "1.0.149"
+yaml_serde = "0.10.4"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3.32"
 tracing = "0.1.44"
@@ -18,5 +20,8 @@ metrics = "0.24.5"
 kube = { version = "3.1.0", features = ["runtime", "derive"] }
 kube-leader-election = "0.43.0"
 k8s-openapi = { version = "0.27.1", features = ["latest", "schemars"] }
+gateway-api = "0.21"
 uuid = { version = "1.23.1", features = ["v4"] }
 built = { version = "0.8.0", features = ["git2"] }
+schemars = "1.2.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

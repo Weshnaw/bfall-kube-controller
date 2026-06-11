@@ -1,5 +1,14 @@
-use std::{collections::BTreeMap, pin::Pin, sync::Arc, time::Duration};
+// TODO: migrate all the Ingress logic to be gateway HTTPRoutes instead
 
+use std::{
+    collections::BTreeMap,
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 use k8s_openapi::api::{
     core::v1::Service,
     networking::v1::{
@@ -16,9 +25,8 @@ use kube::{
 };
 use metrics::{counter, histogram};
 use shared::controller::{BFallController, CheckLeadershipStatus};
-use tokio::{sync::watch, time::Instant};
+use tokio::time::Instant;
 use tracing::{debug, info, warn};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 pub mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
@@ -26,6 +34,10 @@ pub mod built_info {
 
 #[tracing::instrument(level = "debug", skip(ctx, svc), fields(svc.name = svc.metadata.name, svc.namespace=svc.metadata.namespace))]
 async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, shared::Error> {
+    if !ctx.is_leader() {
+        debug!("Skipping reconciliation as not leader");
+        return Ok(Action::requeue(Duration::from_secs(30)));
+    }
     let start = Instant::now();
     counter!("reconciled").increment(1);
     let client = &ctx.client;
@@ -163,10 +175,6 @@ async fn reconcile(svc: Arc<Service>, ctx: Arc<Data>) -> Result<Action, shared::
 
         counter!("reconciled_patch").increment(1);
         // Use patch with apply to create or update the ingress
-        if !ctx.is_leader() {
-            warn!("Skipping reconciliation as not leader");
-            return Ok(Action::requeue(Duration::from_secs(30)));
-        }
         ingress_api
             .patch(
                 &ingress_name,
@@ -211,17 +219,17 @@ fn error_policy(_svc: Arc<Service>, e: &shared::Error, _ctx: Arc<Data>) -> Actio
 
 struct Data {
     client: Client,
-    leader_status: Option<watch::Receiver<bool>>,
+    leader_status: Option<Arc<AtomicBool>>,
 }
 
 impl CheckLeadershipStatus for Data {
     fn is_leader(&self) -> bool {
         self.leader_status
             .as_ref()
-            .is_some_and(|status| *status.borrow())
+            .is_some_and(|status| status.load(Ordering::Relaxed))
     }
 
-    fn set_leader(&mut self, status: watch::Receiver<bool>) {
+    fn set_leader_atomic_bool(&mut self, status: Arc<AtomicBool>) {
         self.leader_status = Some(status);
     }
 }
@@ -245,24 +253,20 @@ impl shared::controller::ErrorPolicy<Service, shared::Error, Data> for ErrorPoli
 }
 #[tokio::main]
 async fn main() -> Result<(), shared::Error> {
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
-
     if std::env::var("RUST_LOG").is_err() {
         // We are just setting a default RUST_LOG value race conditions don't really matter here
         unsafe {
-            std::env::set_var("RUST_LOG", "warn,tailscale_ingress_controller=info");
+            std::env::set_var("RUST_LOG", "warn,pangolin_service_controller=info");
         }
     }
 
     let client = Client::try_default().await?;
     let config = Config::default().debounce(Duration::from_secs(5));
     let svc = Api::<Service>::all(client.clone());
-    let ingress = Api::<Ingress>::all(client.clone());
-    BFallController::new(client.clone(), config, svc, "tailscale-ingress-controller")
-        .owns(ingress)
+    let http_route = Api::<HTTPRoute>::all(client.clone());
+    BFallController::new(client.clone(), config, svc, "pangolin-service-controller")
+        .await
+        .owns(http_route)
         .run::<Reconciler, ErrorPolicy, Data>(Data {
             client,
             leader_status: None,

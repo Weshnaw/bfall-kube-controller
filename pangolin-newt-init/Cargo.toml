@@ -1,17 +1,20 @@
 [package]
-name = "tailscale-ingress-controller"
+name = "pangolin-newt-init"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-shared.workspace = true
-derive_more.workspace = true
+shared = { path = "../shared", default-features = false, features = ["pangolin"]}
 tokio.workspace = true
+futures.workspace = true
 tracing.workspace = true
 metrics.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tracing-subscriber.workspace = true
+reqwest.workspace = true
 
 [build-dependencies]
 built.workspace = true

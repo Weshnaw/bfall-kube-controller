@@ -1,0 +1,109 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: pangolin
+spec:
+  controllerName: bfall.me/pangolin-gateway-controller
+  parametersRef:
+    group: bfall.me
+    kind: PangolinConfig
+    name: pangolin-gateway-config
+---
+apiVersion: bfall.me/v1alpha1
+kind: PangolinConfig
+metadata:
+  name: pangolin-gateway-config
+spec:
+  api: https://api.pangolin.bfall.me
+  apiKeyRef:
+    name: pangolin-secret
+    key: api-key
+    namespace: default
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pangolin-secret
+  namespace: default
+type: Opaque
+stringData:
+  api-key: "${GATEWAY_API_KEY}"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: example-gateway
+  namespace: default
+spec:
+  gatewayClassName: pangolin
+  infrastructure:
+    labels:
+      bfall.me/pangolin-org: "bfall-me"
+      bfall.me/pangolin-visibility: "public"
+      # TODO: I wonder if you could obtain the site programatically, maybe by specifiying the pangolin newt node name/namespace
+      bfall.me/pangolin-site-selector: "newt-site"
+      bfall.me/pangolin-site-selector-ns: "bfall-me"
+      # if the resource is public it creates a target for each site
+      # TODO: how to handle if I wanted different priorities for each site, especially if it's using the site-selector
+      #
+      # if you aren't using the pangolin-newt-init you can just manually defind a comma seperated list of site ids:
+      bfall.me/pangolin-site: "unripe-scytodes-thoracica"
+      # TODO: just create a custom CRD for the complex configs; might be able to use HttpRouteRulesBackendRefsFiltersExtensionRef to specify auth rules on a per route level as well
+      #       research the filters specifications to see if some of these are already implented and use the FiltersExtensionRef for the rest
+      # - Access Control
+      # - Authentication Methods
+      # - OTP
+      # - Rules
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      hostname: "*.bfall.me"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: example-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: example-gateway
+      sectionName: http
+  hostnames:
+    - gw-test.bfall.me
+  rules:
+    # TODO: remove this match in the example as it is the default anyway
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: portfolio
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: example-tcp-route
+spec:
+  parentRefs:
+    - name: example-gateway
+      port: 6001
+  rules:
+    - backendRefs:
+        - name: portfolio
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: example-udp-route
+spec:
+  parentRefs:
+    - name: example-gateway
+      port: 6001
+  rules:
+    - backendRefs:
+        - name: portfolio
+          port: 80
+# TODO: create another controller that can take a svc with a couple labels i.e. `gw-name: example-gateway`; `ports: portfolio, anotherport` and turn it into the correct route resources

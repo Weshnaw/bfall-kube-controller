@@ -1,0 +1,18 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: example
+  namespace: default
+  labels:
+    bfall.me/pangolin-gateway: example-gateway
+    bfall.me/pangolin-port: http
+spec:
+  selector:
+    app.kubernetes.io/name: example
+  ports:
+    - protocol: TCP
+      appProtocol: http
+      name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP

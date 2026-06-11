@@ -1,4 +1,4 @@
-FROM rust:1.93-slim AS builder
+FROM rust:1.95-slim AS builder
 
 ENV APP_GROUP=appgroup \
     APP_GID=1000 \
@@ -9,6 +9,7 @@ ENV APP_GROUP=appgroup \
 WORKDIR /build
 COPY Cargo.toml .
 COPY Cargo.lock ./
+RUN sed -i 's|members = \[.*\]|members = ["shared", "tailscale-ingress-controller"]|' Cargo.toml
 COPY tailscale-ingress-controller/Cargo.toml ./tailscale-ingress-controller/
 COPY tailscale-ingress-controller/build.rs ./tailscale-ingress-controller/
 COPY shared/Cargo.toml ./shared/
